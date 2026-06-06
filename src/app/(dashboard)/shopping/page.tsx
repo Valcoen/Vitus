@@ -1,14 +1,17 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 
 export default async function ShoppingPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: userData } = await supabase.from('users').select('household_id').eq('auth_id', user.id).single()
-  
+  const { data: userData } = await supabase
+    .from('users')
+    .select('id, household_id, weight, height, goal, food_preferences')
+    .eq('auth_id', user.id)
+    .single()
+
   if (!userData?.household_id) {
     return (
       <div className="space-y-8 max-w-4xl">
@@ -28,69 +31,176 @@ export default async function ShoppingPage() {
     )
   }
 
-  // Fetch shopping items
-  const { data: items } = await supabase
-    .from('shopping_lists')
-    .select('*')
-    .eq('household_id', userData.household_id)
-    .order('name', { ascending: true })
-
-  // Fetch food items to get categories for each shopping item
-  const itemNames = (items || []).map(i => i.name)
-  let foodItemsMap: Record<string, { kategorie: string }> = {}
-  if (itemNames.length > 0) {
-    const { data: foodItems } = await supabase
-      .from('food_items')
-      .select('name, kategorie')
-      .in('name', itemNames)
-    
-    for (const fi of (foodItems || [])) {
-      foodItemsMap[fi.name] = { kategorie: fi.kategorie || '' }
-    }
-  }
-
-  // Fetch current meal plan recipes to show which recipes need which items
+  // ─── Fetch meals with recipes for this household ───
   const { data: meals } = await supabase
     .from('meals')
-    .select('name, recipe_id, recipes(title, ingredients)')
+    .select('id, name, meal_type, recipe_id, is_shared, recipes(id, title, ingredients, standard_servings)')
     .eq('household_id', userData.household_id)
+    .order('day_index', { ascending: true })
 
-  // Build a map: ingredient name -> list of recipe names that use it
-  const ingredientRecipeMap: Record<string, Set<string>> = {}
-  for (const meal of (meals || [])) {
-    const recipe = (meal as any).recipes
+  // ─── Fetch meal_portions for this user ───
+  const mealIds = (meals || []).map((m: any) => m.id)
+  let userPortions: Record<string, { target_kcal: number }> = {}
+  if (mealIds.length > 0) {
+    const { data: portions } = await supabase
+      .from('meal_portions')
+      .select('meal_id, target_kcal')
+      .in('meal_id', mealIds)
+      .eq('user_id', userData.id)
+
+    for (const p of (portions || [])) {
+      userPortions[p.meal_id] = { target_kcal: p.target_kcal }
+    }
+  }
+
+  // ─── Collect all food item IDs from recipe ingredients ───
+  const allFoodItemIds = new Set<string>()
+  for (const meal of (meals || []) as any[]) {
+    const recipe = meal.recipes
     if (!recipe?.ingredients) continue
-    const recipeName = recipe.title || meal.name || 'Unbekannt'
-    
     if (Array.isArray(recipe.ingredients)) {
-      // Array format: [{food_item_id, amount, unit}]
-      // We need food_item names for these IDs
-      const foodItemIds = recipe.ingredients.map((ing: any) => ing.food_item_id).filter(Boolean)
-      if (foodItemIds.length > 0) {
-        const { data: foodNames } = await supabase
-          .from('food_items')
-          .select('id, name')
-          .in('id', foodItemIds)
-        
-        for (const fn of (foodNames || [])) {
-          if (!ingredientRecipeMap[fn.name]) ingredientRecipeMap[fn.name] = new Set()
-          ingredientRecipeMap[fn.name].add(recipeName)
-        }
-      }
-    } else if (typeof recipe.ingredients === 'object') {
-      // Object format: {name: amount}
-      for (const name of Object.keys(recipe.ingredients)) {
-        if (!ingredientRecipeMap[name]) ingredientRecipeMap[name] = new Set()
-        ingredientRecipeMap[name].add(recipeName)
+      for (const ing of recipe.ingredients) {
+        if (ing.food_item_id) allFoodItemIds.add(ing.food_item_id)
       }
     }
   }
 
-  // Serialize recipe map (Set -> string[])
-  const ingredientRecipes: Record<string, string[]> = {}
-  for (const [name, recipes] of Object.entries(ingredientRecipeMap)) {
-    ingredientRecipes[name] = Array.from(recipes)
+  // ─── Fetch food items (with kategorie) ───
+  let foodItemsById: Record<string, { id: string; name: string; kcal_100g: number; protein_100g: number; carbs_100g: number; fat_100g: number; kategorie: string }> = {}
+  if (allFoodItemIds.size > 0) {
+    const { data: foodItems } = await supabase
+      .from('food_items')
+      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, kategorie')
+      .in('id', Array.from(allFoodItemIds))
+
+    for (const fi of (foodItems || [])) {
+      foodItemsById[fi.id] = { ...fi, kategorie: fi.kategorie || 'Sonstiges' }
+    }
   }
+
+  // ─── Compute individual shopping list from recipes + portions ───
+  // For each meal the user has a portion for, scale the recipe ingredients
+  // to that user's target_kcal, then sum all ingredients across all meals.
+  interface ShoppingIngredient {
+    name: string
+    totalGrams: number
+    kategorie: string
+    recipes: Set<string>
+    isPiece: boolean
+    pieceCount: number
+  }
+
+  const shoppingMap: Record<string, ShoppingIngredient> = {}
+
+  for (const meal of (meals || []) as any[]) {
+    const recipe = meal.recipes
+    if (!recipe?.ingredients || !Array.isArray(recipe.ingredients)) continue
+
+    const portion = userPortions[meal.id]
+    if (!portion) continue // User has no portion for this meal
+
+    // Calculate base recipe kcal
+    const servings = recipe.standard_servings || 1
+    let baseRecipeKcal = 0
+    for (const ing of recipe.ingredients) {
+      const food = foodItemsById[ing.food_item_id]
+      if (!food) continue
+      baseRecipeKcal += (food.kcal_100g * ing.amount) / 100
+    }
+    const basePerServing = baseRecipeKcal / servings
+
+    if (basePerServing <= 0) continue
+
+    // Scale factor: how much of one serving does this user need?
+    const scaleFactor = portion.target_kcal / basePerServing
+
+    // Add scaled ingredients to shopping list
+    for (const ing of recipe.ingredients) {
+      const food = foodItemsById[ing.food_item_id]
+      if (!food) continue
+
+      const key = food.id
+      const lowerName = food.name.toLowerCase()
+      const isPiece = (lowerName === 'ei' || lowerName === 'eier') && ing.amount <= 20
+
+      // For one serving, each ingredient is: ing.amount / servings
+      // Scaled: (ing.amount / servings) * scaleFactor
+      const scaledAmount = (ing.amount / servings) * scaleFactor
+      const effectiveGrams = isPiece ? scaledAmount * 55 : scaledAmount
+
+      if (!shoppingMap[key]) {
+        shoppingMap[key] = {
+          name: food.name,
+          totalGrams: 0,
+          kategorie: food.kategorie,
+          recipes: new Set(),
+          isPiece,
+          pieceCount: 0,
+        }
+      }
+      shoppingMap[key].totalGrams += effectiveGrams
+      if (isPiece) {
+        shoppingMap[key].pieceCount += scaledAmount
+      }
+      shoppingMap[key].recipes.add(recipe.title || meal.name || 'Unbekannt')
+    }
+  }
+
+  // ─── Also read manually toggled checked-state from shopping_lists table ───
+  const { data: existingChecks } = await supabase
+    .from('shopping_lists')
+    .select('name, checked')
+    .eq('household_id', userData.household_id)
+
+  const checkedMap: Record<string, boolean> = {}
+  for (const item of (existingChecks || [])) {
+    checkedMap[item.name] = !!item.checked
+  }
+
+  // ─── Build final shopping list ───
+  interface ShoppingItem {
+    id: string
+    name: string
+    amount: string
+    kategorie: string
+    recipes: string[]
+    checked: boolean
+  }
+
+  const shoppingItems: ShoppingItem[] = Object.entries(shoppingMap).map(([foodId, data]) => {
+    const amount = data.isPiece && data.pieceCount > 0
+      ? `${Math.round(data.pieceCount * 10) / 10} Stk.`
+      : `${Math.round(data.totalGrams)}g`
+
+    return {
+      id: foodId,
+      name: data.name,
+      amount,
+      kategorie: data.kategorie,
+      recipes: Array.from(data.recipes),
+      checked: checkedMap[data.name] || false,
+    }
+  }).sort((a, b) => a.name.localeCompare(b.name))
+
+  // ─── Group by category ───
+  const groupedItems: Record<string, ShoppingItem[]> = {}
+  for (const item of shoppingItems) {
+    const cat = item.kategorie || 'Sonstiges'
+    if (!groupedItems[cat]) groupedItems[cat] = []
+    groupedItems[cat].push(item)
+  }
+
+  const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
+    if (a === 'Sonstiges') return 1
+    if (b === 'Sonstiges') return -1
+    return a.localeCompare(b)
+  })
+
+  // ─── Stats ───
+  const totalItems = shoppingItems.length
+  const checkedItems = shoppingItems.filter(i => i.checked).length
+  const uncheckedItems = totalItems - checkedItems
+  const progressPercent = totalItems > 0 ? Math.round((checkedItems / totalItems) * 100) : 0
 
   // Category emoji mapping
   const categoryEmojis: Record<string, string> = {
@@ -104,88 +214,67 @@ export default async function ShoppingPage() {
     'nüsse': '🥜',
     'gewürze': '🧂',
     'öle': '🫒',
+    'öle & fette': '🫒',
     'backwaren': '🍞',
     'getränke': '🥤',
     'süßwaren': '🍫',
     'tiefkühl': '🧊',
     'konserven': '🥫',
+    'saucen': '🫙',
     'sonstiges': '📦',
   }
 
-  // Group items by category
-  interface ShoppingItemWithMeta {
-    id: string
-    name: string
-    amount: string | null
-    checked: boolean
-    kategorie: string
-    recipes: string[]
-  }
-
-  const enrichedItems: ShoppingItemWithMeta[] = (items || []).map(item => ({
-    id: item.id,
-    name: item.name,
-    amount: item.amount,
-    checked: !!item.checked,
-    kategorie: foodItemsMap[item.name]?.kategorie || 'Sonstiges',
-    recipes: ingredientRecipes[item.name] || [],
-  }))
-
-  // Group by category
-  const groupedItems: Record<string, ShoppingItemWithMeta[]> = {}
-  for (const item of enrichedItems) {
-    const cat = item.kategorie || 'Sonstiges'
-    if (!groupedItems[cat]) groupedItems[cat] = []
-    groupedItems[cat].push(item)
-  }
-
-  // Sort categories alphabetically, but put "Sonstiges" last
-  const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
-    if (a === 'Sonstiges') return 1
-    if (b === 'Sonstiges') return -1
-    return a.localeCompare(b)
-  })
-
-  // Stats
-  const totalItems = enrichedItems.length
-  const checkedItems = enrichedItems.filter(i => i.checked).length
-  const uncheckedItems = totalItems - checkedItems
-  const progressPercent = totalItems > 0 ? Math.round((checkedItems / totalItems) * 100) : 0
-
-  // Server actions
-  async function toggleItem(id: string, currentState: boolean) {
+  // ─── Server Actions ───
+  async function toggleItem(itemName: string, currentState: boolean) {
     'use server'
     const supabase = await createClient()
-    await supabase.from('shopping_lists').update({ checked: !currentState }).eq('id', id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: u } = await supabase.from('users').select('household_id').eq('auth_id', user!.id).single()
+    if (!u?.household_id) return
+
+    // Check if row exists
+    const { data: existing } = await supabase
+      .from('shopping_lists')
+      .select('id')
+      .eq('household_id', u.household_id)
+      .eq('name', itemName)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase.from('shopping_lists').update({ checked: !currentState }).eq('id', existing.id)
+    } else {
+      // Create a row so we can track checked state
+      await supabase.from('shopping_lists').insert({
+        household_id: u.household_id,
+        name: itemName,
+        amount: '',
+        checked: !currentState,
+      })
+    }
     revalidatePath('/shopping')
   }
 
-  async function clearCheckedItems() {
+  async function uncheckAll() {
     'use server'
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     const { data: u } = await supabase.from('users').select('household_id').eq('auth_id', user!.id).single()
     if (u?.household_id) {
-      await supabase.from('shopping_lists').delete().eq('household_id', u.household_id).eq('checked', true)
+      await supabase.from('shopping_lists').update({ checked: false }).eq('household_id', u.household_id)
       revalidatePath('/shopping')
     }
   }
 
-  async function clearAllItems() {
+  async function checkAll() {
     'use server'
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     const { data: u } = await supabase.from('users').select('household_id').eq('auth_id', user!.id).single()
     if (u?.household_id) {
-      await supabase.from('shopping_lists').delete().eq('household_id', u.household_id)
+      // Mark all current items as checked
+      await supabase.from('shopping_lists').update({ checked: true }).eq('household_id', u.household_id)
       revalidatePath('/shopping')
     }
-  }
-
-  async function regenerateFromMealPlan() {
-    'use server'
-    // Redirect to meal plan to regenerate
-    redirect('/meal-plan')
   }
 
   return (
@@ -197,7 +286,7 @@ export default async function ShoppingPage() {
           Einkaufsliste
         </h1>
         <p className="text-[hsl(var(--text-muted))] mt-2 text-base font-medium">
-          Alle Zutaten aus deinem Ernährungsplan, gruppiert nach Kategorie.
+          Deine individuellen Mengen basierend auf deinem Ernährungsplan.
         </p>
       </div>
 
@@ -205,8 +294,10 @@ export default async function ShoppingPage() {
         /* Empty State */
         <div className="card-apple text-center py-16 border-dashed">
           <span className="text-5xl mb-4 block">🛒</span>
-          <p className="text-lg font-bold text-[hsl(var(--text-muted))] mb-2">Deine Einkaufsliste ist leer</p>
-          <p className="text-sm font-medium text-[hsl(var(--text-muted))] mb-6">Generiere einen Ernährungsplan, um automatisch eine Einkaufsliste zu erstellen.</p>
+          <p className="text-lg font-bold text-[hsl(var(--text-muted))] mb-2">Keine Zutaten gefunden</p>
+          <p className="text-sm font-medium text-[hsl(var(--text-muted))] mb-6 max-w-sm mx-auto">
+            Generiere einen Ernährungsplan, um automatisch deine individuelle Einkaufsliste zu berechnen.
+          </p>
           <a href="/meal-plan" className="btn-primary inline-flex px-8 gap-2">
             🥗 Zum Ernährungsplan
           </a>
@@ -220,7 +311,9 @@ export default async function ShoppingPage() {
                 <span className="text-2xl">📊</span>
                 <div>
                   <p className="text-sm font-bold text-[hsl(var(--text-muted))]">Fortschritt</p>
-                  <p className="text-lg font-black">{checkedItems} <span className="text-sm font-semibold text-[hsl(var(--text-muted))]">von {totalItems} erledigt</span></p>
+                  <p className="text-lg font-black">
+                    {checkedItems} <span className="text-sm font-semibold text-[hsl(var(--text-muted))]">von {totalItems} erledigt</span>
+                  </p>
                 </div>
               </div>
               <div className="text-right">
@@ -231,14 +324,14 @@ export default async function ShoppingPage() {
             </div>
             {/* Progress Bar */}
             <div className="w-full h-2.5 bg-[hsl(var(--input-bg))] rounded-full overflow-hidden">
-              <div 
+              <div
                 className={`h-full rounded-full transition-all duration-500 ${progressPercent === 100 ? 'bg-emerald-500' : 'bg-[hsl(var(--primary))]'}`}
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
             {uncheckedItems > 0 && (
               <p className="text-xs font-medium text-[hsl(var(--text-muted))] mt-2">
-                Noch {uncheckedItems} {uncheckedItems === 1 ? 'Artikel' : 'Artikel'} offen
+                Noch {uncheckedItems} Artikel offen
               </p>
             )}
           </div>
@@ -274,12 +367,12 @@ export default async function ShoppingPage() {
                   <ul className="space-y-2">
                     {categoryItems.map(item => (
                       <li key={item.id} className={`group flex items-start gap-3 p-3 rounded-xl transition-all ${
-                        item.checked 
-                          ? 'bg-emerald-50/50 dark:bg-emerald-950/10' 
+                        item.checked
+                          ? 'bg-emerald-50/50 dark:bg-emerald-950/10'
                           : 'bg-[hsl(var(--background))] hover:bg-[hsl(var(--input-bg))]'
                       }`}>
                         {/* Checkbox */}
-                        <form action={toggleItem.bind(null, item.id, item.checked)} className="shrink-0 mt-0.5">
+                        <form action={toggleItem.bind(null, item.name, item.checked)} className="shrink-0 mt-0.5">
                           <button type="submit" className="block">
                             <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                               item.checked
@@ -297,19 +390,17 @@ export default async function ShoppingPage() {
 
                         {/* Item Content */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2">
+                          <div className="flex items-baseline gap-2 flex-wrap">
                             <span className={`font-semibold text-sm ${item.checked ? 'line-through text-[hsl(var(--text-muted))]' : ''}`}>
                               {item.name}
                             </span>
-                            {item.amount && (
-                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
-                                item.checked 
-                                  ? 'bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]' 
-                                  : 'bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]'
-                              }`}>
-                                {item.amount}
-                              </span>
-                            )}
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                              item.checked
+                                ? 'bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]'
+                                : 'bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]'
+                            }`}>
+                              {item.amount}
+                            </span>
                           </div>
                           {/* Recipe tags */}
                           {item.recipes.length > 0 && (
@@ -337,18 +428,28 @@ export default async function ShoppingPage() {
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
-            {checkedItems > 0 && (
-              <form action={clearCheckedItems}>
-                <button type="submit" className="flex items-center gap-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 px-5 py-2.5 rounded-xl transition-colors w-full sm:w-auto justify-center">
-                  ✓ Erledigte löschen ({checkedItems})
+            {checkedItems > 0 && checkedItems < totalItems && (
+              <form action={uncheckAll}>
+                <button type="submit" className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--text-muted))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--input-bg))] px-5 py-2.5 rounded-xl transition-colors w-full sm:w-auto justify-center">
+                  ↩️ Alle zurücksetzen
                 </button>
               </form>
             )}
-            <form action={clearAllItems}>
-              <button type="submit" className="flex items-center gap-2 text-sm font-semibold text-red-500 border border-red-200 dark:border-red-800/40 hover:bg-red-50 dark:hover:bg-red-950/20 px-5 py-2.5 rounded-xl transition-colors w-full sm:w-auto justify-center">
-                🗑️ Gesamte Liste leeren
-              </button>
-            </form>
+            {uncheckedItems > 0 && (
+              <form action={checkAll}>
+                <button type="submit" className="flex items-center gap-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 px-5 py-2.5 rounded-xl transition-colors w-full sm:w-auto justify-center">
+                  ✓ Alle abhaken
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* Info box */}
+          <div className="card-apple bg-[hsl(var(--input-bg))] border-none">
+            <p className="text-xs font-semibold text-[hsl(var(--text-muted))] flex items-start gap-2">
+              <span className="text-sm">💡</span>
+              Die Mengen werden individuell für dich berechnet, basierend auf deinem Kalorienziel und den Rezepten in deinem Ernährungsplan.
+            </p>
           </div>
         </>
       )}
