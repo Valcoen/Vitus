@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
 import Toaster from '@/components/Toaster'
 import LogoutButton from '@/components/LogoutButton'
+import MobileSidebar from '@/components/MobileSidebar'
 import { Suspense } from 'react'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -32,7 +33,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <Suspense fallback={null}>
         <Toaster />
       </Suspense>
-      {/* Sidebar - Desktop */}
+
+      {/* Desktop Sidebar */}
       <aside className="w-72 bg-[hsl(var(--sidebar-bg))] border-r border-[hsl(var(--border))] hidden md:flex flex-col z-10 transition-colors">
         <div className="p-8 pb-4">
           <h2 className="text-2xl font-bold tracking-tight">Vitus Nutrition</h2>
@@ -43,7 +45,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <Link 
               key={item.href} 
               href={item.href} 
-               // Need client component for active states, simplifying for server component
               className="flex items-center gap-3.5 px-4 py-2.5 rounded-2xl hover:bg-[hsl(var(--input-bg))] transition-colors text-[hsl(var(--text))] font-semibold"
             >
               <item.icon size={20} strokeWidth={2.5} className="opacity-80" /> 
@@ -58,10 +59,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto w-full relative z-0 transition-colors">
-        {/* Mobile Header -> Can add client component later to toggle sidebar */}
-        <div className="md:hidden flex items-center justify-between p-4 bg-[hsl(var(--sidebar-bg))] border-b border-[hsl(var(--border))] sticky top-0 z-50">
-            <h2 className="text-xl font-bold">Vitus Nutrition</h2>
-        </div>
+        {/* Mobile Sidebar (client component with burger button) */}
+        <MobileSidebar userName={userData?.name || undefined} />
+        
         <div className="p-4 md:p-8 lg:p-10 max-w-6xl mx-auto space-y-8">
           {children}
         </div>
