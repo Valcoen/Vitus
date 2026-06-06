@@ -1,8 +1,9 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, LogOut, ChartPie, Apple, CookingPot } from 'lucide-react'
+import { LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
 import Toaster from '@/components/Toaster'
+import LogoutButton from '@/components/LogoutButton'
 import { Suspense } from 'react'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -51,11 +52,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           ))}
         </nav>
         <div className="p-6 border-t border-[hsl(var(--border))]">
-          <form action="/auth/signout" method="post">
-             <button type="submit" className="flex items-center gap-3.5 w-full px-4 py-2.5 text-red-500 font-semibold hover:bg-red-50 dark:hover:bg-red-950/30 rounded-2xl transition-colors">
-                <LogOut size={20} strokeWidth={2.5} /> Logout
-             </button>
-          </form>
+          <LogoutButton />
         </div>
       </aside>
 
