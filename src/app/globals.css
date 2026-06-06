@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 95%; /* #F2F2F7 - Apple Light Mode Background */
+    --card: 0 0% 100%; /* #FFFFFF */
+    --text: 0 0% 0%; /* #000000 */
+    --text-muted: 240 5% 57%; /* #8E8E93 */
+    --border: 240 5% 91%; /* #E5E5EA */
+    --input-bg: 240 5% 91%; /* #E5E5EA */
+    
+    --primary: 29 100% 50%; /* #FF7A00 - Vitus Orange */
+    --primary-foreground: 0 0% 100%;
+    
+    --sidebar-bg: 0 0% 100%; /* #FFFFFF */
+    
+    --shadow-soft: 0px 2px 10px rgba(0,0,0,0.03);
+    
+    --radius: 1rem; /* 16px */
+  }
+
+  /* Basic Dark Mode override based on System or Class (we'll use class for manual override if needed) */
+  .dark {
+    --background: 0 0% 0%; /* #000000 - Apple Pure Black */
+    --card: 240 4% 11%; /* #1C1C1E - Deep dark gray */
+    --text: 0 0% 100%; /* #FFFFFF */
+    --text-muted: 240 5% 57%; /* #8E8E93 */
+    --border: 240 2% 23%; /* #38383A */
+    --input-bg: 240 3% 18%; /* #2C2C2E */
+    
+    --primary: 29 100% 50%; /* #FF7A00 */
+    --primary-foreground: 0 0% 100%;
+    
+    --sidebar-bg: 240 4% 11%; /* #1C1C1E */
+    
+    --shadow-soft: 0px 4px 14px rgba(0,0,0,0.2);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-[hsl(var(--border))];
+  }
+  body {
+    @apply bg-[hsl(var(--background))] text-[hsl(var(--text))] antialiased transition-colors duration-200;
+  }
+}
+
+/* Base custom Apple-style inputs */
+@layer components {
+  .input-apple {
+    @apply w-full bg-[hsl(var(--input-bg))] text-[hsl(var(--text))] border border-[hsl(var(--border))] rounded-xl px-4 py-3 font-medium outline-none transition-all focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary))]/20;
+  }
+  .btn-primary {
+    @apply bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] font-semibold rounded-2xl px-4 py-3 transition-transform active:scale-95 text-center flex items-center justify-center;
+  }
+  .btn-secondary {
+    @apply bg-[hsl(var(--card))] text-[hsl(var(--text))] font-semibold rounded-2xl px-4 py-3 border border-[hsl(var(--border))] transition-transform active:scale-95 text-center flex items-center justify-center;
+  }
+  .card-apple {
+    @apply bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-[1rem] shadow-[var(--shadow-soft)] p-6;
+  }
+}
