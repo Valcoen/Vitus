@@ -8,7 +8,7 @@ export default async function NewRecipePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: userData } = await supabase.from('users').select('id, household_id').eq('auth_id', user.id).single()
+  const { data: userData } = await supabase.from('users').select('id, household_id, name').eq('auth_id', user.id).single()
 
   // Check planner status
   let isPlanner = false
@@ -26,6 +26,8 @@ export default async function NewRecipePage() {
     .from('food_items')
     .select('id, name, category, kcal_100g, protein_100g, carbs_100g, fat_100g')
     .order('name', { ascending: true })
+
+  const creatorUserId = userData?.id
 
   async function saveRecipe(formData: FormData) {
     'use server'
@@ -46,12 +48,21 @@ export default async function NewRecipePage() {
     }
 
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) redirect('/login')
+
+    const { data: creator } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_id', user.id)
+      .single()
 
     const { error } = await supabase.from('recipes').insert({
       title,
       instructions: instructions || null,
       standard_servings,
       ingredients,
+      created_by: creator?.id || null,
     })
 
     if (error) {

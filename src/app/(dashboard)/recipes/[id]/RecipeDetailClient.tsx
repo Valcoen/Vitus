@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Flame, Drumstick, Wheat, Droplets, Users, Minus, Plus, ArrowLeft, Scale } from 'lucide-react'
+import { Flame, Drumstick, Wheat, Droplets, Users, Minus, Plus, ArrowLeft, Scale, User } from 'lucide-react'
 import Link from 'next/link'
 
 type FoodItem = {
@@ -27,6 +27,8 @@ type Recipe = {
   standard_servings: number
   rating: number | null
   is_favorite: boolean | null
+  created_by?: string | null
+  creator_name?: string | null
 }
 
 export default function RecipeDetailClient({
@@ -111,6 +113,12 @@ export default function RecipeDetailClient({
             </span>
           )}
         </div>
+        {recipe.creator_name && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <User size={13} className="text-[hsl(var(--text-muted))]" />
+            <span className="text-sm font-semibold text-[hsl(var(--text-muted))]">Erstellt von {recipe.creator_name}</span>
+          </div>
+        )}
       </div>
 
       {/* Portion selector */}

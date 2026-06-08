@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { Dumbbell, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Dumbbell, AlertCircle, CheckCircle2, KeyRound, ArrowLeft } from 'lucide-react'
 
 function translateError(msg: string): string {
   const map: Record<string, string> = {
@@ -20,6 +20,7 @@ function translateError(msg: string): string {
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
+  const [isForgotPassword, setIsForgotPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -45,7 +46,14 @@ export default function LoginPage() {
     setMessageType(null)
 
     try {
-      if (isLogin) {
+      if (isForgotPassword) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth/update-password`,
+        })
+        if (error) throw error
+        setMessage('Wir haben dir einen Link zum Zurücksetzen deines Passworts geschickt. Bitte überprüfe dein E-Mail-Postfach.')
+        setMessageType('success')
+      } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -103,28 +111,44 @@ export default function LoginPage() {
       <div className="card-apple w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-[hsl(var(--primary))] text-white rounded-full flex items-center justify-center mb-4 shadow-lg shadow-[hsl(var(--primary))]/25">
-            <Dumbbell size={32} />
+            {isForgotPassword ? <KeyRound size={28} /> : <Dumbbell size={32} />}
           </div>
           <h1 className="text-2xl font-bold">Vitus Nutrition</h1>
-          <p className="text-sm text-[hsl(var(--text-muted))] mt-1 font-medium">Dein persönlicher Ernährungsplaner</p>
+          <p className="text-sm text-[hsl(var(--text-muted))] mt-1 font-medium">
+            {isForgotPassword ? 'Passwort zurücksetzen' : 'Dein persönlicher Ernährungsplaner'}
+          </p>
         </div>
 
-        <div className="flex w-full mb-6 relative">
+        {/* Tab navigation — hidden in forgot-password mode */}
+        {!isForgotPassword && (
+          <div className="flex w-full mb-6 relative">
+            <button
+              className={`flex-1 pb-3 font-semibold transition-colors ${isLogin ? 'text-[hsl(var(--text))] border-b-2 border-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))] border-b border-[hsl(var(--border))]'}`}
+              onClick={() => { setIsLogin(true); setMessage(null); setMessageType(null); }}
+              type="button"
+            >
+              Login
+            </button>
+            <button
+              className={`flex-1 pb-3 font-semibold transition-colors ${!isLogin ? 'text-[hsl(var(--text))] border-b-2 border-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))] border-b border-[hsl(var(--border))]'}`}
+              onClick={() => { setIsLogin(false); setMessage(null); setMessageType(null); }}
+              type="button"
+            >
+              Registrierung
+            </button>
+          </div>
+        )}
+
+        {/* Back link in forgot-password mode */}
+        {isForgotPassword && (
           <button
-            className={`flex-1 pb-3 font-semibold transition-colors ${isLogin ? 'text-[hsl(var(--text))] border-b-2 border-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))] border-b border-[hsl(var(--border))]'}`}
-            onClick={() => { setIsLogin(true); setMessage(null); setMessageType(null); }}
             type="button"
+            onClick={() => { setIsForgotPassword(false); setMessage(null); setMessageType(null); }}
+            className="flex items-center gap-1.5 text-sm font-semibold text-[hsl(var(--text-muted))] hover:text-[hsl(var(--primary))] transition-colors mb-6"
           >
-            Login
+            <ArrowLeft size={16} /> Zurück zum Login
           </button>
-          <button
-            className={`flex-1 pb-3 font-semibold transition-colors ${!isLogin ? 'text-[hsl(var(--text))] border-b-2 border-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))] border-b border-[hsl(var(--border))]'}`}
-            onClick={() => { setIsLogin(false); setMessage(null); setMessageType(null); }}
-            type="button"
-          >
-            Registrierung
-          </button>
-        </div>
+        )}
 
         {/* Message display — error or success */}
         {message && messageType && (
@@ -146,7 +170,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Registration fields: Name + Surname side by side */}
-          {!isLogin && (
+          {!isLogin && !isForgotPassword && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1 pl-1">Vorname</label>
@@ -184,44 +208,56 @@ export default function LoginPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1 pl-1">Passwort</label>
-            <input
-              type="password"
-              required
-              className="input-apple"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mindestens 6 Zeichen"
-            />
-          </div>
+          {/* Password field — hidden in forgot-password mode */}
+          {!isForgotPassword && (
+            <div>
+              <label className="block text-sm font-medium mb-1 pl-1">Passwort</label>
+              <input
+                type="password"
+                required
+                className="input-apple"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mindestens 6 Zeichen"
+              />
+            </div>
+          )}
 
-          {/* Remember Me — only on Login */}
-          {isLogin && (
-            <div className="flex items-center gap-2.5 pt-1">
+          {/* Remember Me + Forgot Password — only on Login */}
+          {isLogin && !isForgotPassword && (
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={rememberMe}
+                  onClick={() => setRememberMe(!rememberMe)}
+                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
+                    rememberMe
+                      ? 'bg-[hsl(var(--primary))] border-[hsl(var(--primary))]'
+                      : 'border-[hsl(var(--text-muted))]/40 bg-transparent hover:border-[hsl(var(--primary))]/60'
+                  }`}
+                >
+                  {rememberMe && (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-white">
+                      <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </button>
+                <label
+                  className="text-sm font-medium text-[hsl(var(--text-muted))] cursor-pointer select-none"
+                  onClick={() => setRememberMe(!rememberMe)}
+                >
+                  Angemeldet bleiben
+                </label>
+              </div>
               <button
                 type="button"
-                role="checkbox"
-                aria-checked={rememberMe}
-                onClick={() => setRememberMe(!rememberMe)}
-                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
-                  rememberMe
-                    ? 'bg-[hsl(var(--primary))] border-[hsl(var(--primary))]'
-                    : 'border-[hsl(var(--text-muted))]/40 bg-transparent hover:border-[hsl(var(--primary))]/60'
-                }`}
+                onClick={() => { setIsForgotPassword(true); setMessage(null); setMessageType(null); }}
+                className="text-sm font-semibold text-[hsl(var(--primary))] hover:underline underline-offset-4 transition-all"
               >
-                {rememberMe && (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-white">
-                    <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
+                Passwort vergessen?
               </button>
-              <label
-                className="text-sm font-medium text-[hsl(var(--text-muted))] cursor-pointer select-none"
-                onClick={() => setRememberMe(!rememberMe)}
-              >
-                Angemeldet bleiben
-              </label>
             </div>
           )}
 
@@ -238,7 +274,7 @@ export default function LoginPage() {
                 </svg>
                 Wird geladen...
               </span>
-            ) : (isLogin ? 'Einloggen' : 'Registrieren')}
+            ) : isForgotPassword ? 'Reset-Link senden' : (isLogin ? 'Einloggen' : 'Registrieren')}
           </button>
         </form>
       </div>

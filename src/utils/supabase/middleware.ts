@@ -38,7 +38,11 @@ export async function updateSession(request: NextRequest) {
                       request.nextUrl.pathname.startsWith('/household') || 
                       request.nextUrl.pathname.startsWith('/meal-plan') || 
                       request.nextUrl.pathname.startsWith('/tracking') || 
-                      request.nextUrl.pathname.startsWith('/recipes')
+                      request.nextUrl.pathname.startsWith('/recipes') ||
+                      request.nextUrl.pathname.startsWith('/shopping') ||
+                      request.nextUrl.pathname.startsWith('/food-items') ||
+                      request.nextUrl.pathname.startsWith('/checkin') ||
+                      request.nextUrl.pathname.startsWith('/settings')
 
   if (!user && isProtected) {
     const url = request.nextUrl.clone()

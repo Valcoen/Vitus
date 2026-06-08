@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Flame, Drumstick, Wheat, Droplets } from 'lucide-react'
+import { Plus, Flame, Drumstick, Wheat, Droplets, User } from 'lucide-react'
 
 type FoodItem = {
   id: string
@@ -27,6 +27,8 @@ type Recipe = {
   rating: number | null
   public_ratings: number | null
   standard_servings: number
+  created_by: string | null
+  creator_name?: string | null
 }
 
 function calculateNutrition(ingredients: Ingredient[], foodItemsMap: Map<string, FoodItem>) {
@@ -61,6 +63,19 @@ export default async function RecipesPage() {
     .from('recipes')
     .select('*')
     .order('title', { ascending: true })
+
+  // Fetch creator names for recipes that have a created_by
+  const creatorIds = [...new Set((recipes || []).map((r: any) => r.created_by).filter(Boolean))]
+  let creatorsMap = new Map<string, string>()
+  if (creatorIds.length > 0) {
+    const { data: creators } = await supabase
+      .from('users')
+      .select('id, name')
+      .in('id', creatorIds)
+    for (const c of (creators || [])) {
+      creatorsMap.set(c.id, c.name)
+    }
+  }
 
   // Collect all food_item_ids from all recipe ingredients
   const allFoodItemIds = new Set<string>()
@@ -139,6 +154,16 @@ export default async function RecipesPage() {
                     </span>
                   )}
                 </div>
+
+                {/* Author badge */}
+                {creatorsMap.get(recipe.created_by || '') && (
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <User size={12} className="text-[hsl(var(--text-muted))]" />
+                    <span className="text-xs font-semibold text-[hsl(var(--text-muted))]">
+                      {creatorsMap.get(recipe.created_by || '')}
+                    </span>
+                  </div>
+                )}
 
                 {ingredients.length > 0 && (
                   <p className="text-sm text-[hsl(var(--text-muted))] font-medium mb-4">

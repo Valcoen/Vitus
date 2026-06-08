@@ -130,14 +130,25 @@ export default async function MealPlanPage() {
     }
 
     // Fetch food items for macro calculation
+    // Ingredients can be in two formats:
+    //   Object format: { "Honig": 40, "Haferflocken": 100 } (name → grams)
+    //   Array format:  [{ food_item_id: "uuid", amount: 100 }]
     const allIngredientNames = new Set<string>()
+    const allFoodItemIds = new Set<string>()
     ;(meals || []).forEach((meal: any) => {
-        if (meal.recipes?.ingredients && typeof meal.recipes.ingredients === 'object') {
+        if (!meal.recipes?.ingredients) return
+        if (Array.isArray(meal.recipes.ingredients)) {
+            for (const ing of meal.recipes.ingredients) {
+                if (ing.food_item_id) allFoodItemIds.add(ing.food_item_id)
+            }
+        } else if (typeof meal.recipes.ingredients === 'object') {
             Object.keys(meal.recipes.ingredients).forEach(name => allIngredientNames.add(name))
         }
     })
 
     let foodItemsMap: Record<string, FoodItem> = {}
+    let foodItemsById: Record<string, FoodItem> = {}
+
     if (allIngredientNames.size > 0) {
         const { data: foodItems } = await supabase
             .from('food_items')
@@ -146,6 +157,19 @@ export default async function MealPlanPage() {
         
         for (const fi of (foodItems || [])) {
             foodItemsMap[fi.name] = fi
+            foodItemsById[fi.id] = fi
+        }
+    }
+
+    if (allFoodItemIds.size > 0) {
+        const { data: foodItems } = await supabase
+            .from('food_items')
+            .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g')
+            .in('id', Array.from(allFoodItemIds))
+        
+        for (const fi of (foodItems || [])) {
+            foodItemsMap[fi.name] = fi
+            foodItemsById[fi.id] = fi
         }
     }
 
@@ -204,9 +228,22 @@ export default async function MealPlanPage() {
         // Build CalendarMeal objects for this day
         const dayMeals = mealsByDayIndex[dayIdx] || []
         const calendarMeals: CalendarMeal[] = dayMeals.map((meal: any) => {
-            const recipeIngredients = (meal.recipes?.ingredients && typeof meal.recipes.ingredients === 'object')
-                ? meal.recipes.ingredients as Record<string, number>
-                : {}
+            // Build Record<name, grams> for macroScaler - handle both ingredient formats
+            let recipeIngredients: Record<string, number> = {}
+            if (meal.recipes?.ingredients) {
+                if (Array.isArray(meal.recipes.ingredients)) {
+                    // Array format: [{food_item_id, amount}] → convert to {name: grams}
+                    for (const ing of meal.recipes.ingredients) {
+                        const food = foodItemsById[ing.food_item_id]
+                        if (food && typeof ing.amount === 'number') {
+                            recipeIngredients[food.name] = (recipeIngredients[food.name] || 0) + ing.amount
+                        }
+                    }
+                } else if (typeof meal.recipes.ingredients === 'object') {
+                    // Object format: already {name: grams}
+                    recipeIngredients = meal.recipes.ingredients as Record<string, number>
+                }
+            }
 
             const portions = portionsMap[meal.id] || []
 

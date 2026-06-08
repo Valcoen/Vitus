@@ -33,6 +33,17 @@ export default async function RecipeDetailPage({ params, searchParams }: { param
 
   if (error || !recipe) notFound()
 
+  // Fetch creator name if available
+  let creatorName: string | null = null
+  if (recipe.created_by) {
+    const { data: creator } = await supabase
+      .from('users')
+      .select('name')
+      .eq('id', recipe.created_by)
+      .single()
+    creatorName = creator?.name || null
+  }
+
   // Fetch food items for ingredients (ingredients are stored as { "Name": grams })
   const rawIngredients = typeof recipe.ingredients === 'object' && recipe.ingredients !== null && !Array.isArray(recipe.ingredients) 
     ? recipe.ingredients as Record<string, number> 
@@ -81,6 +92,7 @@ export default async function RecipeDetailPage({ params, searchParams }: { param
       recipe={{
         ...recipe,
         ingredients,
+        creator_name: creatorName,
       }}
       foodItemsMap={foodItemsMap}
       targetKcal={targetKcal}

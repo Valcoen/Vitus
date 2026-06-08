@@ -53,7 +53,7 @@ export interface RecipeRow {
   id: string
   title: string
   instructions: string | null
-  ingredients: RecipeIngredient[] | null
+  ingredients: RecipeIngredient[] | Record<string, number> | null
   meal_type: string | null
   is_favorite: boolean | null
   rating: number | null
@@ -64,6 +64,39 @@ export interface RecipeIngredient {
   food_item_id: string
   amount: number
   unit: string
+}
+
+/** Normalize ingredients from either format to a common [{name, amount}] structure */
+function normalizeIngredients(
+  ingredients: RecipeIngredient[] | Record<string, number> | null,
+  foodItemsMap: Map<string, FoodItemRow>,
+): { name: string; amount: number; foodId: string }[] {
+  if (!ingredients) return []
+  
+  if (Array.isArray(ingredients)) {
+    // Array format: [{food_item_id, amount}]
+    return ingredients
+      .filter(ing => ing.food_item_id && foodItemsMap.has(ing.food_item_id))
+      .map(ing => {
+        const food = foodItemsMap.get(ing.food_item_id)!
+        return { name: food.name, amount: ing.amount, foodId: food.id }
+      })
+  } else if (typeof ingredients === 'object') {
+    // Object format: {name: grams}
+    const result: { name: string; amount: number; foodId: string }[] = []
+    for (const [name, amount] of Object.entries(ingredients)) {
+      if (typeof amount !== 'number') continue
+      // Find food item by name
+      for (const [id, food] of foodItemsMap) {
+        if (food.name === name) {
+          result.push({ name, amount, foodId: id })
+          break
+        }
+      }
+    }
+    return result
+  }
+  return []
 }
 
 export interface FoodItemRow {
@@ -143,10 +176,11 @@ function mergePreferences(members: HouseholdMember[]): {
  * Calculates the total kcal of a recipe based on its ingredients.
  */
 function getRecipeKcal(recipe: RecipeRow, foodItemsMap: Map<string, FoodItemRow>): number {
-  if (!Array.isArray(recipe.ingredients)) return 0
+  const normalized = normalizeIngredients(recipe.ingredients, foodItemsMap)
+  if (normalized.length === 0) return 0
   let total = 0
-  for (const ing of recipe.ingredients) {
-    const food = foodItemsMap.get(ing.food_item_id)
+  for (const ing of normalized) {
+    const food = foodItemsMap.get(ing.foodId)
     if (food) {
       total += (food.kcal_100g * ing.amount) / 100
     }
@@ -162,10 +196,10 @@ function recipeContainsAny(
   names: Set<string>,
   foodItemsMap: Map<string, FoodItemRow>
 ): boolean {
-  if (!Array.isArray(recipe.ingredients) || names.size === 0) return false
-  for (const ing of recipe.ingredients) {
-    const food = foodItemsMap.get(ing.food_item_id)
-    if (food && names.has(food.name.toLowerCase())) return true
+  if (names.size === 0) return false
+  const normalized = normalizeIngredients(recipe.ingredients, foodItemsMap)
+  for (const ing of normalized) {
+    if (names.has(ing.name.toLowerCase())) return true
   }
   return false
 }
@@ -185,30 +219,28 @@ function filterRecipes(
     if (recipeContainsAny(recipe, merged.dislikes, foodItemsMap)) return false
 
     // Diet filtering: check if recipe contains animal products
+    const normalized = normalizeIngredients(recipe.ingredients, foodItemsMap)
+    if (normalized.length === 0) return true
+
     if (merged.dietType === 'vegan' || merged.dietType === 'vegetarian') {
-      if (!Array.isArray(recipe.ingredients)) return true
-      for (const ing of recipe.ingredients) {
-        const food = foodItemsMap.get(ing.food_item_id)
+      for (const ing of normalized) {
+        const food = foodItemsMap.get(ing.foodId)
         if (!food) continue
         const cat = (food.kategorie || '').toLowerCase()
         const name = food.name.toLowerCase()
         
         if (merged.dietType === 'vegan') {
-          // Exclude meat, fish, dairy, eggs
           if (['fleisch', 'fisch', 'milchprodukte'].includes(cat)) return false
           if (name.includes('ei') && !name.includes('erdnuss') && !name.includes('reis')) return false
         } else if (merged.dietType === 'vegetarian') {
-          // Exclude meat and fish, allow dairy and eggs
           if (['fleisch', 'fisch'].includes(cat)) return false
         }
       }
     } else if (merged.dietType === 'pescetarian') {
-      if (!Array.isArray(recipe.ingredients)) return true
-      for (const ing of recipe.ingredients) {
-        const food = foodItemsMap.get(ing.food_item_id)
+      for (const ing of normalized) {
+        const food = foodItemsMap.get(ing.foodId)
         if (!food) continue
         const cat = (food.kategorie || '').toLowerCase()
-        // Exclude meat but allow fish
         if (cat === 'fleisch') {
           const name = food.name.toLowerCase()
           if (!name.includes('lachs') && !name.includes('fisch') && !name.includes('meeresfrüchte')) {
@@ -386,16 +418,17 @@ function generateShoppingList(
 
   for (const meal of plannedMeals) {
     const recipe = recipes.get(meal.recipeId)
-    if (!recipe || !Array.isArray(recipe.ingredients)) continue
+    if (!recipe) continue
+
+    const normalized = normalizeIngredients(recipe.ingredients, foodItemsMap)
+    if (normalized.length === 0) continue
 
     const servings = recipe.standard_servings || 1
     const portionScale = memberCount / servings
 
-    for (const ing of recipe.ingredients) {
-      const food = foodItemsMap.get(ing.food_item_id)
-      if (!food) continue
-      const key = food.id
-      if (!totals[key]) totals[key] = { grams: 0, name: food.name }
+    for (const ing of normalized) {
+      const key = ing.foodId
+      if (!totals[key]) totals[key] = { grams: 0, name: ing.name }
       totals[key].grams += ing.amount * portionScale
     }
   }
@@ -469,16 +502,34 @@ export async function generateMealPlan(
     }
 
     // ── Step 3: Fetch food items for macro calculation + filtering ──
+    // Support both ingredient formats
     const allFoodItemIds = new Set<string>()
+    const allIngredientNames = new Set<string>()
     for (const recipe of allRecipes) {
       if (Array.isArray(recipe.ingredients)) {
-        for (const ing of recipe.ingredients) {
+        for (const ing of (recipe.ingredients as RecipeIngredient[])) {
           if (ing.food_item_id) allFoodItemIds.add(ing.food_item_id)
+        }
+      } else if (recipe.ingredients && typeof recipe.ingredients === 'object') {
+        for (const name of Object.keys(recipe.ingredients)) {
+          allIngredientNames.add(name)
         }
       }
     }
 
     const foodItemsMap = new Map<string, FoodItemRow>()
+
+    if (allIngredientNames.size > 0) {
+      const { data: foodItems } = await supabase
+        .from('food_items')
+        .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, kategorie')
+        .in('name', Array.from(allIngredientNames))
+
+      for (const fi of (foodItems || [])) {
+        foodItemsMap.set(fi.id, fi)
+      }
+    }
+
     if (allFoodItemIds.size > 0) {
       const { data: foodItems } = await supabase
         .from('food_items')

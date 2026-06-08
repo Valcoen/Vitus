@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
+import Link from 'next/link'
 
 export default async function ShoppingPage() {
   const supabase = await createClient()
@@ -25,7 +26,7 @@ export default async function ShoppingPage() {
         <div className="card-apple text-center py-12">
           <span className="text-4xl mb-3 block">🏠</span>
           <p className="text-[hsl(var(--text-muted))] font-semibold">Bitte trete zuerst einem Haushalt bei, um eine Einkaufsliste zu sehen.</p>
-          <a href="/household" className="btn-primary mt-4 inline-flex px-6">Zum Haushalt →</a>
+          <Link href="/household" className="btn-primary mt-4 inline-flex px-6">Zum Haushalt →</Link>
         </div>
       </div>
     )
@@ -53,7 +54,11 @@ export default async function ShoppingPage() {
     }
   }
 
-  // ─── Collect all food item IDs from recipe ingredients ───
+  // ─── Collect all ingredient names/IDs from recipe ingredients ───
+  // Recipes can be in two formats:
+  //   Object format: { "Honig": 40, "Haferflocken": 100 } (name → grams)
+  //   Array format:  [{ food_item_id: "uuid", amount: 100 }]
+  const allIngredientNames = new Set<string>()
   const allFoodItemIds = new Set<string>()
   for (const meal of (meals || []) as any[]) {
     const recipe = meal.recipes
@@ -62,25 +67,45 @@ export default async function ShoppingPage() {
       for (const ing of recipe.ingredients) {
         if (ing.food_item_id) allFoodItemIds.add(ing.food_item_id)
       }
+    } else if (typeof recipe.ingredients === 'object') {
+      for (const name of Object.keys(recipe.ingredients)) {
+        allIngredientNames.add(name)
+      }
     }
   }
 
-  // ─── Fetch food items (with kategorie) ───
-  let foodItemsById: Record<string, { id: string; name: string; kcal_100g: number; protein_100g: number; carbs_100g: number; fat_100g: number; kategorie: string }> = {}
+  // ─── Fetch food items (by name and/or by ID) ───
+  type FoodItemInfo = { id: string; name: string; kcal_100g: number; protein_100g: number; carbs_100g: number; fat_100g: number; kategorie: string }
+  let foodItemsByName: Record<string, FoodItemInfo> = {}
+  let foodItemsById: Record<string, FoodItemInfo> = {}
+
+  if (allIngredientNames.size > 0) {
+    const { data: foodItems } = await supabase
+      .from('food_items')
+      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie')
+      .in('name', Array.from(allIngredientNames))
+
+    for (const fi of (foodItems || [])) {
+      const kat = fi.category || fi.kategorie || 'Sonstiges'
+      foodItemsByName[fi.name] = { ...fi, kategorie: kat }
+      foodItemsById[fi.id] = { ...fi, kategorie: kat }
+    }
+  }
+
   if (allFoodItemIds.size > 0) {
     const { data: foodItems } = await supabase
       .from('food_items')
-      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, kategorie')
+      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie')
       .in('id', Array.from(allFoodItemIds))
 
     for (const fi of (foodItems || [])) {
-      foodItemsById[fi.id] = { ...fi, kategorie: fi.kategorie || 'Sonstiges' }
+      const kat = fi.category || fi.kategorie || 'Sonstiges'
+      foodItemsByName[fi.name] = { ...fi, kategorie: kat }
+      foodItemsById[fi.id] = { ...fi, kategorie: kat }
     }
   }
 
   // ─── Compute individual shopping list from recipes + portions ───
-  // For each meal the user has a portion for, scale the recipe ingredients
-  // to that user's target_kcal, then sum all ingredients across all meals.
   interface ShoppingIngredient {
     name: string
     totalGrams: number
@@ -94,45 +119,57 @@ export default async function ShoppingPage() {
 
   for (const meal of (meals || []) as any[]) {
     const recipe = meal.recipes
-    if (!recipe?.ingredients || !Array.isArray(recipe.ingredients)) continue
+    if (!recipe?.ingredients) continue
 
     const portion = userPortions[meal.id]
-    if (!portion) continue // User has no portion for this meal
+    if (!portion) continue
+
+    const servings = recipe.standard_servings || 1
+    const isArrayFormat = Array.isArray(recipe.ingredients)
+
+    // Normalize ingredients to a common structure
+    const normalizedIngredients: { food: FoodItemInfo; amount: number }[] = []
+
+    if (isArrayFormat) {
+      for (const ing of recipe.ingredients) {
+        const food = foodItemsById[ing.food_item_id]
+        if (food && typeof ing.amount === 'number') {
+          normalizedIngredients.push({ food, amount: ing.amount })
+        }
+      }
+    } else {
+      for (const [name, amount] of Object.entries(recipe.ingredients)) {
+        const food = foodItemsByName[name]
+        if (food && typeof amount === 'number') {
+          normalizedIngredients.push({ food, amount })
+        }
+      }
+    }
 
     // Calculate base recipe kcal
-    const servings = recipe.standard_servings || 1
     let baseRecipeKcal = 0
-    for (const ing of recipe.ingredients) {
-      const food = foodItemsById[ing.food_item_id]
-      if (!food) continue
-      baseRecipeKcal += (food.kcal_100g * ing.amount) / 100
+    for (const ing of normalizedIngredients) {
+      baseRecipeKcal += (ing.food.kcal_100g * ing.amount) / 100
     }
     const basePerServing = baseRecipeKcal / servings
 
     if (basePerServing <= 0) continue
 
-    // Scale factor: how much of one serving does this user need?
     const scaleFactor = portion.target_kcal / basePerServing
 
-    // Add scaled ingredients to shopping list
-    for (const ing of recipe.ingredients) {
-      const food = foodItemsById[ing.food_item_id]
-      if (!food) continue
-
-      const key = food.id
-      const lowerName = food.name.toLowerCase()
+    for (const ing of normalizedIngredients) {
+      const key = ing.food.id
+      const lowerName = ing.food.name.toLowerCase()
       const isPiece = (lowerName === 'ei' || lowerName === 'eier') && ing.amount <= 20
 
-      // For one serving, each ingredient is: ing.amount / servings
-      // Scaled: (ing.amount / servings) * scaleFactor
       const scaledAmount = (ing.amount / servings) * scaleFactor
       const effectiveGrams = isPiece ? scaledAmount * 55 : scaledAmount
 
       if (!shoppingMap[key]) {
         shoppingMap[key] = {
-          name: food.name,
+          name: ing.food.name,
           totalGrams: 0,
-          kategorie: food.kategorie,
+          kategorie: ing.food.kategorie,
           recipes: new Set(),
           isPiece,
           pieceCount: 0,
@@ -202,25 +239,43 @@ export default async function ShoppingPage() {
   const uncheckedItems = totalItems - checkedItems
   const progressPercent = totalItems > 0 ? Math.round((checkedItems / totalItems) * 100) : 0
 
-  // Category emoji mapping
+  // Category emoji mapping – handles both lower and capitalized keys
   const categoryEmojis: Record<string, string> = {
+    'Obst': '🍎',
     'obst': '🍎',
+    'Gemüse': '🥦',
     'gemüse': '🥦',
+    'Fleisch': '🥩',
     'fleisch': '🥩',
+    'Fisch': '🐟',
     'fisch': '🐟',
+    'Milchprodukte': '🧀',
     'milchprodukte': '🧀',
+    'Getreide': '🌾',
     'getreide': '🌾',
+    'Hülsenfrüchte': '🫘',
     'hülsenfrüchte': '🫘',
+    'Nüsse': '🥜',
     'nüsse': '🥜',
+    'Gewürze': '🧂',
     'gewürze': '🧂',
+    'Öle': '🫒',
     'öle': '🫒',
+    'Öle & Fette': '🫒',
     'öle & fette': '🫒',
+    'Backwaren': '🍞',
     'backwaren': '🍞',
+    'Getränke': '🥤',
     'getränke': '🥤',
+    'Süßwaren': '🍫',
     'süßwaren': '🍫',
+    'Tiefkühl': '🧊',
     'tiefkühl': '🧊',
+    'Konserven': '🥫',
     'konserven': '🥫',
+    'Saucen': '🫙',
     'saucen': '🫙',
+    'Sonstiges': '📦',
     'sonstiges': '📦',
   }
 
@@ -298,9 +353,9 @@ export default async function ShoppingPage() {
           <p className="text-sm font-medium text-[hsl(var(--text-muted))] mb-6 max-w-sm mx-auto">
             Generiere einen Ernährungsplan, um automatisch deine individuelle Einkaufsliste zu berechnen.
           </p>
-          <a href="/meal-plan" className="btn-primary inline-flex px-8 gap-2">
+          <Link href="/meal-plan" className="btn-primary inline-flex px-8 gap-2">
             🥗 Zum Ernährungsplan
-          </a>
+          </Link>
         </div>
       ) : (
         <>
@@ -340,8 +395,7 @@ export default async function ShoppingPage() {
           <div className="space-y-4">
             {sortedCategories.map(category => {
               const categoryItems = groupedItems[category]
-              const catLower = category.toLowerCase()
-              const emoji = categoryEmojis[catLower] || '📦'
+              const emoji = categoryEmojis[category] || categoryEmojis[category.toLowerCase()] || '📦'
               const checkedInCategory = categoryItems.filter(i => i.checked).length
               const allChecked = checkedInCategory === categoryItems.length
 
