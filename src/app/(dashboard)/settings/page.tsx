@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -21,9 +22,19 @@ export default async function SettingsPage() {
     'use server'
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('users').delete().eq('auth_id', user!.id)
+    if (!user) return
+
+    // 1. Lösche den Benutzer aus der public.users Tabelle
+    await supabase.from('users').delete().eq('auth_id', user.id)
+    
+    // 2. Lösche den Benutzer aus der auth.users Tabelle über RPC
+    await supabase.rpc('delete_user')
+    
+    // 3. Melde den Benutzer ab, um Session/Cookies zu löschen
     await supabase.auth.signOut()
-    // Need redirect ideally, but this is simple demo
+    
+    // 4. Weiterleitung zum Login
+    redirect('/login')
   }
 
   return (
