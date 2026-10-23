@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -9,6 +9,11 @@ export const metadata: Metadata = {
   description: "Dein persönlicher Ernährungsplaner",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -17,9 +22,6 @@ export default function RootLayout({
   // Add suppressing hydration warning for Next-themes later if needed
   return (
     <html lang="de" suppressHydrationWarning>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-      </head>
       <body className={inter.className}>
         {children}
       </body>

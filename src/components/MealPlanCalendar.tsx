@@ -98,6 +98,27 @@ function getMealTypeStyle(mealType: string): { bg: string; border: string; text:
   }
 }
 
+// Collapsed-card summary: one line per person, current user first
+function PersonSummary({ persons, compact }: { persons: PersonPortion[]; compact?: boolean }) {
+  if (persons.length === 0) return null
+  const sorted = [...persons].sort((a, b) => Number(b.isCurrentUser) - Number(a.isCurrentUser))
+  return (
+    <div className={`${compact ? 'mt-1.5 space-y-0.5' : 'mt-2 space-y-1'}`}>
+      {sorted.map((p) => (
+        <p
+          key={p.userId}
+          className={`flex items-baseline justify-between gap-2 text-xs font-semibold ${
+            p.isCurrentUser ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))]'
+          }`}
+        >
+          <span className="truncate">{p.isCurrentUser ? 'Du' : p.name}</span>
+          <span className="whitespace-nowrap">{p.totalKcal} kcal · {p.totalGrams}g</span>
+        </p>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────
 
 export default function MealPlanCalendar({ days, mealSlots, householdMemberCount }: MealPlanCalendarProps) {
@@ -122,7 +143,7 @@ export default function MealPlanCalendar({ days, mealSlots, householdMemberCount
   return (
     <div>
       {/* ═══ DESKTOP: Full Week Grid ═══ */}
-      <div className="hidden lg:block">
+      <div className="hidden xl:block">
         <DesktopGrid
           days={days}
           mealSlots={mealSlots}
@@ -133,7 +154,7 @@ export default function MealPlanCalendar({ days, mealSlots, householdMemberCount
       </div>
 
       {/* ═══ MOBILE/TABLET: Tab-based Day View ═══ */}
-      <div className="lg:hidden">
+      <div className="xl:hidden">
         <MobileTabs
           days={days}
           mealSlots={mealSlots}
@@ -192,7 +213,7 @@ function DesktopGrid({
               {day.dateFormatted}
             </p>
             {day.isToday && (
-              <span className="inline-block text-[10px] font-bold text-[hsl(var(--primary))] bg-[hsl(var(--primary))]/15 px-2 py-0.5 rounded-full mt-1">
+              <span className="inline-block text-xs font-bold text-[hsl(var(--primary))] bg-[hsl(var(--primary))]/15 px-2 py-0.5 rounded-full mt-1">
                 Heute
               </span>
             )}
@@ -213,7 +234,7 @@ function DesktopGrid({
               <div className="flex items-center justify-center">
                 <div className="text-center">
                   <span className="text-lg">{style.icon}</span>
-                  <p className="text-[11px] font-bold uppercase tracking-wider mt-1" style={{ color: style.text }}>
+                  <p className="text-xs font-bold uppercase tracking-wider mt-1" style={{ color: style.text }}>
                     {slot.replace('essen', '')}
                   </p>
                 </div>
@@ -304,7 +325,7 @@ function MobileTabs({
                   : 'bg-[hsl(var(--card))] border border-[hsl(var(--border))]'
             }`}
           >
-            <span className={`text-[10px] font-bold uppercase tracking-wider ${
+            <span className={`text-xs font-bold uppercase tracking-wider ${
               idx === activeDayIndex
                 ? day.isToday ? 'text-white/80' : 'text-[hsl(var(--primary))]'
                 : day.isToday ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--text-muted))]'
@@ -373,20 +394,17 @@ function MobileTabs({
                   }}
                 >
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <span className="text-xl">{style.icon}</span>
                       <div>
-                        <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: style.text }}>
+                        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: style.text }}>
                           {slot}
                         </p>
                         <p className="font-bold text-base mt-0.5 leading-snug break-words">
                           {meal.recipeTitle || meal.name}
                         </p>
-                        {meal.persons.length > 0 && meal.persons[0] && (
-                          <p className="text-xs font-semibold text-[hsl(var(--text-muted))] mt-1">
-                            {meal.persons[0].totalKcal} kcal
-                            {meal.isShared && ` · ${householdMemberCount} Pers.`}
-                          </p>
+                        {meal.isShared && (
+                          <p className="text-xs font-semibold text-[hsl(var(--text-muted))] mt-1">Gemeinsam · {householdMemberCount} Pers.</p>
                         )}
                       </div>
                     </div>
@@ -394,6 +412,7 @@ function MobileTabs({
                       {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </div>
                   </div>
+                  {!isExpanded && <PersonSummary persons={meal.persons} />}
                 </div>
               </button>
 
@@ -425,7 +444,6 @@ function MealCell({
   style: ReturnType<typeof getMealTypeStyle>
 }) {
   const displayName = meal.recipeTitle || meal.name
-  const firstPerson = meal.persons[0]
 
   return (
     <button
@@ -449,16 +467,12 @@ function MealCell({
       <p className="font-bold text-sm leading-snug break-words">
         {displayName}
       </p>
-      {firstPerson && (
-        <p className="text-[11px] font-semibold text-[hsl(var(--text-muted))] mt-1.5">
-          {firstPerson.totalKcal} kcal
-        </p>
-      )}
+      {!isExpanded && <PersonSummary persons={meal.persons} compact />}
       {meal.batchGroupId && (
-        <span className="inline-block text-[9px] font-bold uppercase tracking-wider mt-1.5 px-1.5 py-0.5 rounded-md"
+        <span className="inline-block text-xs font-bold uppercase tracking-wider mt-1.5 px-1.5 py-0.5 rounded-md"
           style={{ background: style.bg, color: style.text, border: `1px solid ${style.border}` }}
         >
-          Batch
+          Vorkochen
         </span>
       )}
       <div className="flex justify-end mt-1">
@@ -537,7 +551,7 @@ function MealDetailPanel({
                 }`}>
                   <User size={12} />
                   {person.name}{person.isCurrentUser ? ' (Du)' : ''}
-                  <span className="text-[10px] font-bold opacity-60 ml-1">
+                  <span className="text-xs font-bold opacity-60 ml-1">
                     {person.totalGrams}g gesamt
                   </span>
                 </p>
@@ -547,7 +561,7 @@ function MealDetailPanel({
               {person.ingredients.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2.5">
                   {person.ingredients.map((ing, idx) => (
-                    <span key={idx} className="text-[11px] font-semibold bg-[hsl(var(--background))] px-2 py-1 rounded-lg">
+                    <span key={idx} className="text-xs font-semibold bg-[hsl(var(--background))] px-2 py-1 rounded-lg">
                       {ing.name}: {ing.displayAmount}{ing.displayUnit}
                     </span>
                   ))}
@@ -573,7 +587,7 @@ function MealDetailPanel({
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {meal.cookingTotals.map((item, idx) => (
-                  <span key={idx} className="text-[11px] font-bold bg-[hsl(var(--background))] px-2.5 py-1 rounded-lg text-[hsl(var(--primary))]">
+                  <span key={idx} className="text-xs font-bold bg-[hsl(var(--background))] px-2.5 py-1 rounded-lg text-[hsl(var(--primary))]">
                     {item.name}: {item.totalGrams}{item.displayUnit}
                   </span>
                 ))}
@@ -603,7 +617,7 @@ function MealDetailPanel({
 function MacroItem({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase font-bold text-[hsl(var(--text-muted))] tracking-widest">{label}</span>
+      <span className="text-xs uppercase font-bold text-[hsl(var(--text-muted))] tracking-widest">{label}</span>
       <span className={`font-extrabold text-sm ${color || ''}`}>{value}</span>
     </div>
   )

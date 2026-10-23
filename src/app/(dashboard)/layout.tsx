@@ -1,10 +1,9 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
 import Toaster from '@/components/Toaster'
 import LogoutButton from '@/components/LogoutButton'
 import MobileSidebar from '@/components/MobileSidebar'
+import DesktopNav from '@/components/DesktopNav'
 import { Suspense } from 'react'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -13,20 +12,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (error || !user) redirect('/login')
 
   const { data: userData } = await supabase.from('users').select('name, theme').eq('auth_id', user.id).single()
-
-  const navLinks = [
-    { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/profile', label: 'Mein Profil', icon: User },
-    { href: '/profile/analysis', label: 'Personalisierte Analyse', icon: ChartPie },
-    { href: '/tracking', label: 'Tracking', icon: Activity },
-    { href: '/household', label: 'Haushalt & WG', icon: Users },
-    { href: '/meal-plan', label: 'Ernährungsplan', icon: Map },
-    { href: '/recipes', label: 'Rezepte', icon: CookingPot },
-    { href: '/food-items', label: 'Lebensmittel', icon: Apple },
-    { href: '/shopping', label: 'Einkaufsliste', icon: ShoppingCart },
-    { href: '/checkin', label: 'Check-In', icon: Calendar },
-    { href: '/settings', label: 'Einstellungen', icon: Settings }
-  ]
 
   return (
     <div className={`flex h-screen w-full bg-[hsl(var(--background))] text-[hsl(var(--text))] overflow-hidden ${userData?.theme === 'Dunkel' ? 'dark' : ''}`}>
@@ -40,18 +25,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <h2 className="text-2xl font-bold tracking-tight">Vitus Nutrition</h2>
           {userData?.name && <p className="text-[15px] font-medium text-[hsl(var(--text-muted))] mt-1">Hallo {userData.name}</p>}
         </div>
-        <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto">
-          {navLinks.map((item) => (
-            <Link 
-              key={item.href} 
-              href={item.href} 
-              className="flex items-center gap-3.5 px-4 py-2.5 rounded-2xl hover:bg-[hsl(var(--input-bg))] transition-colors text-[hsl(var(--text))] font-semibold"
-            >
-              <item.icon size={20} strokeWidth={2.5} className="opacity-80" /> 
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <DesktopNav />
         <div className="p-6 border-t border-[hsl(var(--border))]">
           <LogoutButton />
         </div>

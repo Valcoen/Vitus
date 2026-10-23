@@ -460,12 +460,12 @@ export default async function ShoppingPage() {
                           {item.recipes.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1.5">
                               {item.recipes.slice(0, 3).map((recipe, idx) => (
-                                <span key={idx} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]">
+                                <span key={idx} className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]">
                                   🍽️ {recipe}
                                 </span>
                               ))}
                               {item.recipes.length > 3 && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]">
+                                <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-[hsl(var(--input-bg))] text-[hsl(var(--text-muted))]">
                                   +{item.recipes.length - 3} mehr
                                 </span>
                               )}

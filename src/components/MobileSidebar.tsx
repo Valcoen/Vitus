@@ -3,22 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 import LogoutButton from './LogoutButton'
-
-const navLinks = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/profile', label: 'Mein Profil', icon: User },
-  { href: '/profile/analysis', label: 'Personalisierte Analyse', icon: ChartPie },
-  { href: '/tracking', label: 'Tracking', icon: Activity },
-  { href: '/household', label: 'Haushalt & WG', icon: Users },
-  { href: '/meal-plan', label: 'Ernährungsplan', icon: Map },
-  { href: '/recipes', label: 'Rezepte', icon: CookingPot },
-  { href: '/food-items', label: 'Lebensmittel', icon: Apple },
-  { href: '/shopping', label: 'Einkaufsliste', icon: ShoppingCart },
-  { href: '/checkin', label: 'Check-In', icon: Calendar },
-  { href: '/settings', label: 'Einstellungen', icon: Settings },
-]
+import { navGroups, isLinkActive } from './navLinks'
 
 interface MobileSidebarProps {
   userName?: string
@@ -102,23 +89,30 @@ export default function MobileSidebar({ userName }: MobileSidebarProps) {
 
         {/* Navigation Links */}
         <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
-          {navLinks.map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl font-semibold transition-all active:scale-[0.97] ${
-                  isActive
-                    ? 'bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]'
-                    : 'text-[hsl(var(--text))] hover:bg-[hsl(var(--input-bg))]'
-                }`}
-              >
-                <item.icon size={20} strokeWidth={2.5} className={isActive ? '' : 'opacity-70'} />
-                {item.label}
-              </Link>
-            )
-          })}
+          {navGroups.map((group, gi) => (
+            <div key={gi} className={gi > 0 ? 'pt-3' : ''}>
+              {group.title && (
+                <p className="px-4 pb-1 text-xs font-bold uppercase tracking-wider text-[hsl(var(--text-muted))]">{group.title}</p>
+              )}
+              {group.links.map((item) => {
+                const isActive = isLinkActive(pathname, item.href)
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold transition-all active:scale-[0.97] ${
+                      isActive
+                        ? 'bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]'
+                        : 'text-[hsl(var(--text))] hover:bg-[hsl(var(--input-bg))]'
+                    }`}
+                  >
+                    <item.icon size={20} strokeWidth={2.5} className={isActive ? '' : 'opacity-70'} />
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Logout */}

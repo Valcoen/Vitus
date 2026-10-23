@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { calculateAge, calculateBMR, calculateTDEE, adjustForGoal, calculateMacroSplit, getMealCalorieDistribution, type TDEEInput, type Goal, type ActivityFrequency } from '@/utils/tdeeCalculator'
 
 export default async function AnalysisPage() {
@@ -58,7 +59,7 @@ export default async function AnalysisPage() {
                     <p className="text-[hsl(var(--text-muted))] font-medium">
                         Bitte fülle zuerst dein Profil aus (Gewicht, Größe, Geburtstag, Geschlecht), um deine personalisierte Analyse zu sehen.
                     </p>
-                    <a href="/profile" className="btn-primary inline-block mt-4">Zum Profil</a>
+                    <Link href="/profile" className="btn-primary inline-block mt-4">Zum Profil</Link>
                 </div>
             ) : (
                 <>

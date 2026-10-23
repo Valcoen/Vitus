@@ -159,7 +159,7 @@ export default async function HouseholdPage() {
                                     </span>
                                     {isPlanner && (
                                         <form action={makePlanner.bind(null, m.id)}>
-                                            <button type="submit" className="text-[10px] uppercase font-bold px-2 py-1 bg-[hsl(var(--primary))] text-white rounded-md hover:scale-95 transition-transform">
+                                            <button type="submit" className="text-xs uppercase font-bold px-2 py-1 bg-[hsl(var(--primary))] text-white rounded-md hover:scale-95 transition-transform">
                                                 Zum Planner machen
                                             </button>
                                         </form>

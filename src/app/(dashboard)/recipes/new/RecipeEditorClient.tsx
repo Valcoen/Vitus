@@ -258,22 +258,22 @@ export default function RecipeEditorClient({
             <div className="text-center p-3 bg-[hsl(var(--background))] rounded-xl">
               <Flame size={18} className="text-[hsl(var(--primary))] mx-auto mb-1.5" />
               <p className="text-xl font-extrabold">{Math.round(totalKcal)}</p>
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">kcal</p>
+              <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">kcal</p>
             </div>
             <div className="text-center p-3 bg-[hsl(var(--background))] rounded-xl">
               <Drumstick size={18} className="text-blue-500 mx-auto mb-1.5" />
               <p className="text-xl font-extrabold">{Math.round(totalProtein * 10) / 10}g</p>
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Protein</p>
+              <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Protein</p>
             </div>
             <div className="text-center p-3 bg-[hsl(var(--background))] rounded-xl">
               <Wheat size={18} className="text-amber-500 mx-auto mb-1.5" />
               <p className="text-xl font-extrabold">{Math.round(totalCarbs * 10) / 10}g</p>
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Carbs</p>
+              <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Carbs</p>
             </div>
             <div className="text-center p-3 bg-[hsl(var(--background))] rounded-xl">
               <Droplets size={18} className="text-rose-500 mx-auto mb-1.5" />
               <p className="text-xl font-extrabold">{Math.round(totalFat * 10) / 10}g</p>
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Fett</p>
+              <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Fett</p>
             </div>
           </div>
         </div>

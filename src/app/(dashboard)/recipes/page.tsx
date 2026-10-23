@@ -178,28 +178,28 @@ export default async function RecipesPage() {
                         <Flame size={14} className="text-[hsl(var(--primary))]" />
                       </div>
                       <p className="text-lg font-extrabold">{perServing.kcal}</p>
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">kcal</p>
+                      <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">kcal</p>
                     </div>
                     <div className="text-center">
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <Drumstick size={14} className="text-blue-500" />
                       </div>
                       <p className="text-lg font-extrabold">{perServing.protein}g</p>
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Protein</p>
+                      <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Protein</p>
                     </div>
                     <div className="text-center">
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <Wheat size={14} className="text-amber-500" />
                       </div>
                       <p className="text-lg font-extrabold">{perServing.carbs}g</p>
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Carbs</p>
+                      <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Carbs</p>
                     </div>
                     <div className="text-center">
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <Droplets size={14} className="text-rose-500" />
                       </div>
                       <p className="text-lg font-extrabold">{perServing.fat}g</p>
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Fett</p>
+                      <p className="text-xs uppercase tracking-wider font-semibold text-[hsl(var(--text-muted))]">Fett</p>
                     </div>
                   </div>
                 )}

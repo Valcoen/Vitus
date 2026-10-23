@@ -460,7 +460,7 @@ export default async function ProfilePage() {
                     <input type="checkbox" name="meal_schedule" value={item.value} defaultChecked={isSelected} className="sr-only" />
                     <span className="text-2xl">{item.icon}</span>
                     <span className="text-sm font-bold">{item.value}</span>
-                    <span className="text-[10px] font-medium text-[hsl(var(--text-muted))]">{item.desc}</span>
+                    <span className="text-xs font-medium text-[hsl(var(--text-muted))]">{item.desc}</span>
                   </label>
                 )
               })}
