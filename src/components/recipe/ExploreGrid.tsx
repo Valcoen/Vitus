@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Search, Clock, Flame, Drumstick, X, SlidersHorizontal, FilePen, Star } from 'lucide-react'
+import { Search, Clock, Flame, Drumstick, X, FilePen, Star, Cake, Leaf, Sprout } from 'lucide-react'
 import { RecipeImage, formatMinutes, RatingChip } from './parts'
 import { HIGH_PROTEIN_GRAMS } from '@/lib/recipe/types'
 
@@ -16,13 +16,31 @@ export type RecipeCard = {
   tags: string[]
   status: 'draft' | 'ready'
   rating: number | null
+  course: string | null
+  cuisine: string | null
+  diet: string[]
   /** lower-cased text for search: title, tags, ingredient names */
   haystack: string
 }
 
 const TIME_OPTIONS = [20, 30, 45, 60]
 
-export default function ExploreGrid({ recipes, initialTag, initialQuery, initialDrafts }: { recipes: RecipeCard[]; initialTag?: string; initialQuery?: string; initialDrafts?: boolean }) {
+export type Option = { slug: string; label: string; is_treat?: boolean }
+
+export default function ExploreGrid({ recipes, initialTag, initialQuery, initialDrafts, initialCourse, initialCuisine, courses, cuisines }: {
+  recipes: RecipeCard[]; initialTag?: string; initialQuery?: string; initialDrafts?: boolean
+  initialCourse?: string; initialCuisine?: string; courses: Option[]; cuisines: Option[]
+}) {
+  // course filter: a slug, or "treats" for everything sweet ("Gönnen")
+  const [course, setCourse] = useState<string | null>(initialCourse ?? null)
+  const [cuisine, setCuisine] = useState<string>(initialCuisine ?? '')
+  const [diet, setDiet] = useState<'vegetarian' | 'vegan' | null>(null)
+  const treatSlugs = useMemo(() => new Set(courses.filter(c => c.is_treat).map(c => c.slug)), [courses])
+  const courseLabel = useMemo(() => Object.fromEntries(courses.map(c => [c.slug, c.label])), [courses])
+  const cuisineLabel = useMemo(() => Object.fromEntries(cuisines.map(c => [c.slug, c.label])), [cuisines])
+  // only offer what is used
+  const usedCourses = courses.filter(c => recipes.some(r => r.course === c.slug))
+  const usedCuisines = cuisines.filter(c => recipes.some(r => r.cuisine === c.slug))
   const [query, setQuery] = useState(initialQuery ?? '')
   const [drafts, setDrafts] = useState(!!initialDrafts)
   const [byRating, setByRating] = useState(false)
@@ -30,13 +48,6 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery, initial
   const [tags, setTags] = useState<string[]>(initialTag ? [initialTag] : [])
   const [maxTime, setMaxTime] = useState<number | null>(null)
   const [highProtein, setHighProtein] = useState(false)
-  const [showAllTags, setShowAllTags] = useState(false)
-
-  const allTags = useMemo(() => {
-    const counts = new Map<string, number>()
-    recipes.forEach(r => r.tags.forEach(t => counts.set(t, (counts.get(t) ?? 0) + 1)))
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t)
-  }, [recipes])
 
   // Keep filters in the URL so a filtered view can be shared/bookmarked
   useEffect(() => {
@@ -44,25 +55,28 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery, initial
     if (query) p.set('q', query)
     if (tags.length === 1) p.set('tag', tags[0])
     if (drafts) p.set('drafts', '1')
+    if (course) p.set('art', course)
+    if (cuisine) p.set('kueche', cuisine)
     const qs = p.toString()
     window.history.replaceState(window.history.state, '', qs ? `?${qs}` : window.location.pathname)
-  }, [query, tags, drafts])
+  }, [query, tags, drafts, course, cuisine])
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const filtered = recipes.filter(r =>
     (drafts ? r.status === 'draft' : r.status !== 'draft') &&
     words.every(w => r.haystack.includes(w)) &&
     tags.every(t => r.tags.includes(t)) &&
+    (!course || (course === 'treats' ? !!r.course && treatSlugs.has(r.course) : r.course === course)) &&
+    (!cuisine || r.cuisine === cuisine) &&
+    (!diet || r.diet.includes(diet)) &&
     (maxTime === null || (r.totalTime !== null && r.totalTime <= maxTime)) &&
     (!highProtein || (r.protein ?? 0) >= HIGH_PROTEIN_GRAMS),
   )
   if (byRating) filtered.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title))
-  const activeFilters = tags.length + (maxTime ? 1 : 0) + (highProtein ? 1 : 0) + (query ? 1 : 0) + (drafts ? 1 : 0)
-  const reset = () => { setQuery(''); setTags([]); setMaxTime(null); setHighProtein(false); setDrafts(false) }
-  const toggleTag = (t: string) => setTags(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]))
+  const activeFilters = tags.length + (maxTime ? 1 : 0) + (highProtein ? 1 : 0) + (query ? 1 : 0) + (drafts ? 1 : 0) + (course ? 1 : 0) + (cuisine ? 1 : 0) + (diet ? 1 : 0)
+  const reset = () => { setQuery(''); setTags([]); setMaxTime(null); setHighProtein(false); setDrafts(false); setCourse(null); setCuisine(''); setDiet(null) }
   const chip = (active: boolean) =>
     `h-11 px-4 rounded-full text-base font-semibold whitespace-nowrap border transition-colors ${active ? 'bg-[hsl(var(--primary))] text-white border-transparent' : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]'}`
-  const visibleTags = showAllTags ? allTags : allTags.slice(0, 8)
 
   return (
     <div className="space-y-4">
@@ -91,18 +105,37 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery, initial
         ))}
       </div>
 
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Tags">
-          {visibleTags.map(t => (
-            <button key={t} type="button" className={chip(tags.includes(t))} aria-pressed={tags.includes(t)} onClick={() => toggleTag(t)}>#{t}</button>
-          ))}
-          {allTags.length > 8 && (
-            <button type="button" className="h-11 px-3 font-semibold text-[hsl(var(--text-muted))]" onClick={() => setShowAllTags(v => !v)}>
-              <SlidersHorizontal size={16} className="inline -mt-0.5 mr-1" />{showAllTags ? 'Weniger' : `+${allTags.length - 8} Tags`}
+      {/* Art ("course") – with "Gönnen" for everything sweet */}
+      {(usedCourses.length > 0 || usedCuisines.length > 0) && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap" role="group" aria-label="Art">
+          {usedCourses.some(c => treatSlugs.has(c.slug)) && (
+            <button type="button" className={chip(course === 'treats')} aria-pressed={course === 'treats'} onClick={() => setCourse(course === 'treats' ? null : 'treats')}>
+              <Cake size={16} className="inline -mt-0.5 mr-1" />Gönnen
             </button>
           )}
+          {usedCourses.map(c => (
+            <button key={c.slug} type="button" className={chip(course === c.slug)} aria-pressed={course === c.slug} onClick={() => setCourse(course === c.slug ? null : c.slug)}>{c.label}</button>
+          ))}
         </div>
       )}
+      <div className="flex flex-wrap gap-2 items-center">
+        {usedCuisines.length > 0 && (
+          <select value={cuisine} onChange={e => setCuisine(e.target.value)} aria-label="Küche"
+            className={`h-11 px-4 rounded-full text-base font-semibold border ${cuisine ? 'bg-[hsl(var(--primary))] text-white border-transparent' : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]'}`}>
+            <option value="">Alle Küchen</option>
+            {usedCuisines.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+          </select>
+        )}
+        <button type="button" className={chip(diet === 'vegetarian')} aria-pressed={diet === 'vegetarian'} onClick={() => setDiet(diet === 'vegetarian' ? null : 'vegetarian')}>
+          <Leaf size={16} className="inline -mt-0.5 mr-1" />Vegetarisch
+        </button>
+        <button type="button" className={chip(diet === 'vegan')} aria-pressed={diet === 'vegan'} onClick={() => setDiet(diet === 'vegan' ? null : 'vegan')}>
+          <Sprout size={16} className="inline -mt-0.5 mr-1" />Vegan
+        </button>
+        {tags.length > 0 && tags.map(t => (
+          <button key={t} type="button" className={chip(true)} onClick={() => setTags(tags.filter(x => x !== t))}>#{t} <X size={14} className="inline" /></button>
+        ))}
+      </div>
 
       <div className="flex items-center justify-between min-h-11">
         <p className="font-semibold text-[hsl(var(--text-muted))]">{filtered.length} {filtered.length === 1 ? 'Rezept' : 'Rezepte'}</p>
@@ -127,6 +160,11 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery, initial
                 </div>
                 <div className="p-4 space-y-2">
                   <h3 className="text-lg font-bold leading-snug line-clamp-2">{r.title}</h3>
+                  {(r.course || r.cuisine) && (
+                    <p className="text-sm font-semibold text-[hsl(var(--primary))]">
+                      {[r.course ? courseLabel[r.course] : null, r.cuisine ? cuisineLabel[r.cuisine] : null].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-semibold text-[hsl(var(--text-muted))]">
                     <RatingChip rating={r.rating} />
                     {r.totalTime ? <span className="flex items-center gap-1"><Clock size={15} />{formatMinutes(r.totalTime)}</span> : null}

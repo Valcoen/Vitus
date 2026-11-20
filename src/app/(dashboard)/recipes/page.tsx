@@ -4,11 +4,14 @@ import { getActor } from '@/lib/actor'
 import { can } from '@/lib/permissions'
 import { loadRecipes } from '@/lib/recipe/server'
 import ExploreGrid, { type RecipeCard } from '@/components/recipe/ExploreGrid'
+import { loadTaxonomy } from '@/lib/food/server'
 
-export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ tag?: string; q?: string; drafts?: string }> }) {
-  const { tag, q, drafts } = await searchParams
+export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ tag?: string; q?: string; drafts?: string; art?: string; kueche?: string }> }) {
+  const { tag, q, drafts, art, kueche } = await searchParams
   const { actor, supabase } = await getActor()
-  const recipes = await loadRecipes(supabase)
+  const [recipes, tax] = await Promise.all([loadRecipes(supabase), loadTaxonomy(supabase)])
+  const courseLabel = Object.fromEntries(tax.courses.map(c => [c.slug, c.label]))
+  const cuisineLabel = Object.fromEntries(tax.cuisines.map(c => [c.slug, c.label]))
   const cards: RecipeCard[] = recipes.map(r => ({
     id: r.id,
     title: r.title,
@@ -19,7 +22,10 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     tags: r.tags,
     status: r.status,
     rating: r.rating,
-    haystack: [r.title, ...r.tags, ...r.ingredients.map(i => i.name)].join(' ').toLowerCase(),
+    course: r.course,
+    cuisine: r.cuisine,
+    diet: r.diet,
+    haystack: [r.title, ...r.tags, ...r.ingredients.map(i => i.name), r.course ? courseLabel[r.course] : '', r.cuisine ? cuisineLabel[r.cuisine] : ''].join(' ').toLowerCase(),
   }))
 
   return (
@@ -42,7 +48,10 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
           )}
         </div>
       </div>
-      <ExploreGrid recipes={cards} initialTag={tag} initialQuery={q} initialDrafts={drafts === '1'} />
+      <ExploreGrid recipes={cards} initialTag={tag} initialQuery={q} initialDrafts={drafts === '1'}
+        initialCourse={art} initialCuisine={kueche}
+        courses={tax.courses.map(c => ({ slug: c.slug, label: c.label, is_treat: c.is_treat }))}
+        cuisines={tax.cuisines.map(c => ({ slug: c.slug, label: c.label }))} />
     </div>
   )
 }

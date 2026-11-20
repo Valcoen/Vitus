@@ -1,216 +1,111 @@
-import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { Apple, Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
+import { getActor } from '@/lib/actor'
+import { can } from '@/lib/permissions'
+import { cleanText } from '@/lib/recipe/validate'
+import { loadAllFoods, loadTaxonomy, invalidateFoods } from '@/lib/food/server'
+import FoodBrowser from '@/components/FoodBrowser'
 
-type FoodItem = {
-  id: string
-  name: string
-  category: string
-  kcal_100g: number
-  protein_100g: number
-  carbs_100g: number
-  fat_100g: number
-  created_by: string | null
+// legacy column `category` only allows these values
+const LEGACY: Record<string, string> = {
+  gemuese: 'Gemüse', kartoffeln: 'Gemüse', huelsenfruechte: 'Gemüse', obst: 'Obst', fleisch: 'Fleisch', wurst: 'Fleisch',
+  fisch: 'Fleisch', milch: 'Milchprodukte', kaese: 'Milchprodukte', eier: 'Milchprodukte', brot: 'Getreide',
+  getreide: 'Getreide', mehl: 'Getreide',
 }
 
-const CATEGORIES = ['Obst', 'Gemüse', 'Fleisch', 'Milchprodukte', 'Getreide', 'Sonstiges'] as const
-const CATEGORY_EMOJIS: Record<string, string> = {
-  'Obst': '🍎',
-  'Gemüse': '🥦',
-  'Fleisch': '🥩',
-  'Milchprodukte': '🧀',
-  'Getreide': '🌾',
-  'Sonstiges': '🫒',
+const num = (v: FormDataEntryValue | null, max: number) => {
+  const n = parseFloat(String(v ?? '').replace(',', '.'))
+  return Number.isFinite(n) && n >= 0 && n <= max ? n : null
 }
 
 export default async function FoodItemsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: userData } = await supabase.from('users').select('id, household_id').eq('auth_id', user.id).single()
-
-  let household = null
-  let isPlanner = false
-  if (userData?.household_id) {
-    const { data } = await supabase.from('households').select('planner_user_id').eq('id', userData.household_id).single()
-    household = data
-    isPlanner = household?.planner_user_id === userData?.id
-  }
-
-  const { data: foodItems } = await supabase
-    .from('food_items')
-    .select('*')
-    .order('category', { ascending: true })
-    .order('name', { ascending: true })
-
-  // Group by category
-  const grouped = (foodItems || []).reduce((acc: Record<string, FoodItem[]>, item: FoodItem) => {
-    if (!acc[item.category]) acc[item.category] = []
-    acc[item.category].push(item)
-    return acc
-  }, {})
+  const { actor, supabase } = await getActor()
+  if (!actor) redirect('/login')
+  const [foods, tax] = await Promise.all([loadAllFoods(supabase), loadTaxonomy(supabase)])
+  const { data: household } = actor.householdId
+    ? await supabase.from('households').select('planner_user_id').eq('id', actor.householdId).maybeSingle()
+    : { data: null }
+  const isPlanner = household?.planner_user_id === actor.userId
 
   async function addFoodItem(formData: FormData) {
     'use server'
-    const name = formData.get('name') as string
-    const category = formData.get('category') as string
-    const kcal_100g = parseInt(formData.get('kcal_100g') as string) || 0
-    const protein_100g = parseFloat(formData.get('protein_100g') as string) || 0
-    const carbs_100g = parseFloat(formData.get('carbs_100g') as string) || 0
-    const fat_100g = parseFloat(formData.get('fat_100g') as string) || 0
-
-    if (!name || !category) {
-      redirect(`/food-items?error=${encodeURIComponent('Name und Kategorie sind Pflichtfelder.')}`)
-    }
-
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: u } = await supabase.from('users').select('id').eq('auth_id', user!.id).single()
-
+    const { actor, supabase } = await getActor()
+    if (!can(actor, 'food_item.edit')) redirect(`/food-items?error=${encodeURIComponent('Keine Berechtigung.')}`)
+    const name = cleanText(formData.get('name'), 120)
+    const aisle = String(formData.get('food_category') ?? '')
+    if (!name || !/^[a-z-]{2,40}$/.test(aisle)) redirect(`/food-items?error=${encodeURIComponent('Name und Kategorie sind Pflichtfelder.')}`)
+    const piece = num(formData.get('piece_grams'), 5000)
+    const diet = String(formData.get('diet') ?? '')
     const { error } = await supabase.from('food_items').insert({
       name,
-      category,
-      kcal_100g,
-      protein_100g,
-      carbs_100g,
-      fat_100g,
-      created_by: u?.id
+      category: LEGACY[aisle] ?? 'Sonstiges',
+      food_category: aisle,
+      kcal_100g: Math.round(num(formData.get('kcal_100g'), 900) ?? 0),
+      protein_100g: num(formData.get('protein_100g'), 100) ?? 0,
+      carbs_100g: num(formData.get('carbs_100g'), 100) ?? 0,
+      fat_100g: num(formData.get('fat_100g'), 100) ?? 0,
+      sugar_100g: num(formData.get('sugar_100g'), 100),
+      unit_grams: piece ? { Stück: piece } : {},
+      is_vegetarian: diet === 'vegan' || diet === 'vegetarian' ? true : diet === 'meat' ? false : null,
+      is_vegan: diet === 'vegan' ? true : diet === 'vegetarian' || diet === 'meat' ? false : null,
+      source: 'vitus',
+      created_by: actor!.userId,
     })
-
     if (error) {
-      redirect(`/food-items?error=${encodeURIComponent('Fehler beim Speichern: ' + error.message)}`)
+      const msg = error.code === '23505' ? `„${name}“ gibt es schon.` : 'Speichern fehlgeschlagen (nur der Planer darf Lebensmittel anlegen).'
+      redirect(`/food-items?error=${encodeURIComponent(msg)}`)
     }
-
+    invalidateFoods()
     revalidatePath('/food-items')
-    redirect(`/food-items?success=${encodeURIComponent(`"${name}" wurde erfolgreich hinzugefügt!`)}`)
+    redirect(`/food-items?success=${encodeURIComponent(`„${name}“ hinzugefügt`)}`)
   }
 
+  const input = 'input-apple bg-[hsl(var(--background))] min-h-12'
   return (
-    <div className="space-y-8 max-w-6xl">
+    <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">🍎 Lebensmittel-Datenbank</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Lebensmittel</h1>
         <p className="text-[hsl(var(--text-muted))] mt-1 text-lg font-medium">
-          Alle verfügbaren Lebensmittel mit Nährwerten pro 100g.
+          {foods.filter(f => !f.is_hidden).length.toLocaleString('de-DE')} Lebensmittel mit Nährwerten pro 100 g – die Grundlage für Rezepte und Einkaufsliste.
         </p>
       </div>
 
-      {/* Add food item form (planner only) */}
-      {isPlanner && (
-        <div className="card-apple bg-gradient-to-br from-[hsl(var(--card))] to-[hsl(var(--input-bg))]">
-          <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
-            <Plus className="text-[hsl(var(--primary))]" size={22} /> Neues Lebensmittel hinzufügen
-          </h2>
-          <p className="text-[hsl(var(--text-muted))] font-medium mb-6">
-            Nur der Planner des Haushalts kann neue Lebensmittel anlegen.
-          </p>
-          <form action={addFoodItem} className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Name *</label>
-                <input name="name" className="input-apple bg-[hsl(var(--background))]" type="text" placeholder="z.B. Hähnchenbrust" required />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Kategorie *</label>
-                <select name="category" className="input-apple bg-[hsl(var(--background))] appearance-none" required>
-                  {CATEGORIES.map(c => (
-                    <option key={c} value={c}>{CATEGORY_EMOJIS[c]} {c}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+      <FoodBrowser foods={foods.map(f => ({ ...f, aliases: f.aliases ?? undefined }))} aisles={tax.foodCategories.map(c => ({ slug: c.slug, label: c.label }))} />
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">kcal / 100g</label>
-                <input name="kcal_100g" className="input-apple bg-[hsl(var(--background))]" type="number" min="0" placeholder="0" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Protein / 100g</label>
-                <input name="protein_100g" className="input-apple bg-[hsl(var(--background))]" type="number" min="0" step="0.1" placeholder="0" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Carbs / 100g</label>
-                <input name="carbs_100g" className="input-apple bg-[hsl(var(--background))]" type="number" min="0" step="0.1" placeholder="0" />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Fett / 100g</label>
-                <input name="fat_100g" className="input-apple bg-[hsl(var(--background))]" type="number" min="0" step="0.1" placeholder="0" />
-              </div>
+      {isPlanner ? (
+        <details className="card-apple">
+          <summary className="text-xl font-bold cursor-pointer min-h-11 flex items-center gap-2"><Plus className="text-[hsl(var(--primary))]" size={22} /> Fehlt etwas? Eigenes Lebensmittel anlegen</summary>
+          <form action={addFoodItem} className="space-y-4 mt-4">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <label className="block"><span className="block text-sm font-semibold mb-1.5">Name *</span>
+                <input name="name" className={input} required maxLength={120} placeholder="z. B. Gochujang" /></label>
+              <label className="block"><span className="block text-sm font-semibold mb-1.5">Kategorie *</span>
+                <select name="food_category" className={input} required defaultValue="">
+                  <option value="" disabled>wählen</option>
+                  {tax.foodCategories.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+                </select></label>
             </div>
-
-            <div className="pt-4 border-t border-[hsl(var(--border))]">
-              <button type="submit" className="btn-primary px-8">Lebensmittel Speichern</button>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {[['kcal_100g', 'kcal'], ['protein_100g', 'Protein g'], ['carbs_100g', 'Kohlenh. g'], ['fat_100g', 'Fett g'], ['sugar_100g', 'Zucker g']].map(([n, l]) => (
+                <label key={n} className="block"><span className="block text-sm font-semibold mb-1.5">{l} / 100 g</span>
+                  <input name={n} className={input} inputMode="decimal" placeholder="0" /></label>
+              ))}
             </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <label className="block"><span className="block text-sm font-semibold mb-1.5">Gewicht pro Stück (g, optional)</span>
+                <input name="piece_grams" className={input} inputMode="decimal" placeholder="z. B. 150" /></label>
+              <label className="block"><span className="block text-sm font-semibold mb-1.5">Ernährung</span>
+                <select name="diet" className={input} defaultValue="">
+                  <option value="">unbekannt</option><option value="vegan">vegan</option>
+                  <option value="vegetarian">vegetarisch</option><option value="meat">mit Fleisch/Fisch</option>
+                </select></label>
+            </div>
+            <button type="submit" className="btn-primary h-12 px-8">Speichern</button>
           </form>
-        </div>
-      )}
-
-      {!isPlanner && userData?.household_id && (
-        <div className="card-apple bg-[hsl(var(--input-bg))] border-none">
-          <p className="font-semibold text-[hsl(var(--text-muted))]">💡 Nur der Planner deines Haushalts kann neue Lebensmittel hinzufügen.</p>
-        </div>
-      )}
-
-      {!userData?.household_id && (
-        <div className="card-apple bg-[hsl(var(--input-bg))] border-none">
-          <p className="font-semibold text-[hsl(var(--text-muted))]">💡 Trete einem Haushalt bei, um Lebensmittel hinzufügen zu können.</p>
-        </div>
-      )}
-
-      {/* Food items grouped by category */}
-      <div className="space-y-6">
-        {CATEGORIES.map(cat => {
-          const items = grouped[cat]
-          if (!items || items.length === 0) return null
-
-          return (
-            <div key={cat} className="card-apple">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <span className="text-2xl">{CATEGORY_EMOJIS[cat]}</span> {cat}
-                <span className="text-xs font-bold text-[hsl(var(--text-muted))] bg-[hsl(var(--input-bg))] px-2.5 py-1 rounded-lg ml-2">
-                  {items.length}
-                </span>
-              </h3>
-              <div className="overflow-x-auto -mx-2">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[hsl(var(--text-muted))] font-semibold border-b border-[hsl(var(--border))]">
-                      <th className="pb-3 pl-2">Name</th>
-                      <th className="pb-3 text-right pr-3">kcal</th>
-                      <th className="pb-3 text-right pr-3">Protein</th>
-                      <th className="pb-3 text-right pr-3">Carbs</th>
-                      <th className="pb-3 text-right pr-2">Fett</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item: FoodItem) => (
-                      <tr key={item.id} className="border-b border-[hsl(var(--border))]/50 last:border-0 hover:bg-[hsl(var(--input-bg))] transition-colors">
-                        <td className="py-3 pl-2 font-semibold">{item.name}</td>
-                        <td className="py-3 text-right pr-3">
-                          <span className="inline-block bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] font-bold px-2 py-0.5 rounded-md text-xs">
-                            {item.kcal_100g}
-                          </span>
-                        </td>
-                        <td className="py-3 text-right pr-3 font-medium text-blue-500">{item.protein_100g}g</td>
-                        <td className="py-3 text-right pr-3 font-medium text-amber-500">{item.carbs_100g}g</td>
-                        <td className="py-3 text-right pr-2 font-medium text-rose-500">{item.fat_100g}g</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {(!foodItems || foodItems.length === 0) && (
-        <div className="card-apple text-center p-12 py-20 border-dashed">
-          <p className="text-lg font-bold text-[hsl(var(--text-muted))] mb-2">Noch keine Lebensmittel vorhanden</p>
-          <p className="font-medium text-[hsl(var(--text-muted))]">Der Planner kann neue Lebensmittel hinzufügen.</p>
-        </div>
+        </details>
+      ) : (
+        <p className="text-sm font-semibold text-[hsl(var(--text-muted))]">Neue Lebensmittel kann der Planer eures gemeinsamen Plans anlegen.</p>
       )}
     </div>
   )

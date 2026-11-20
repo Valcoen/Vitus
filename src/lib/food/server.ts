@@ -65,3 +65,15 @@ export async function loadTaxonomy(supabase: SupabaseClient): Promise<Taxonomy> 
   if (!c.error) taxCache = { at: Date.now(), tax }
   return tax
 }
+
+/** Foods for the browser (editor picker): only what search and nutrition need. */
+export async function loadFoodsForClient(supabase: SupabaseClient): Promise<FoodItemLite[]> {
+  const foods = await loadAllFoods(supabase)
+  return foods.map(f => ({
+    id: f.id, name: f.name, aliases: f.aliases?.length ? f.aliases : undefined,
+    kcal_100g: f.kcal_100g, protein_100g: f.protein_100g, carbs_100g: f.carbs_100g, fat_100g: f.fat_100g,
+    density: f.density ?? undefined, unit_grams: f.unit_grams && Object.keys(f.unit_grams).length ? f.unit_grams : undefined,
+    kind: f.kind && f.kind !== 'ingredient' ? f.kind : undefined, is_hidden: f.is_hidden || undefined,
+    source: f.source === 'vitus' ? 'vitus' : undefined,
+  }))
+}

@@ -1,6 +1,6 @@
 # Vitus: deploy checklist & phone test
 
-Live since 2026-11-20: migrations 001–005 are applied. New migrations go live *together with* their code (each file says so).
+Live since 2026-11-20: migrations 001–007 are applied (006/007 = categories + food database). New migrations go live *together with* their code (each file says so).
 
 All commands run on the VPS as root.
 
@@ -119,5 +119,13 @@ Use your phone on mobile data or Wi-Fi, logged in as the WG planner. Tick each b
 - [ ] Your plan shows its people with *Entfernen* / *Planer* buttons, an invite link with *Link teilen*.
 - [ ] Send the link to a flatmate: they open it, log in (or register, then log in) and land on "Einladung zum gemeinsamen Plan" → *Beitreten*.
 - [ ] *Entfernen* removes someone (they can only come back with a link). *Neuen Link erzeugen* makes the old link stop working.
+
+**Kategorien & Lebensmittel (round 3)**
+- [ ] *Entdecken*: chips for *Art* (e.g. Hauptgericht, Frühstück), *Gönnen* (Kuchen, Kekse, Desserts), a *Küche* menu, *Vegetarisch* / *Vegan*.
+- [ ] *Neu*: set *Art* = „Kuchen & Torten“, *Küche* = „Deutsch“. *Aus Datenbank* → type „mehl“ → pick „Mehl, hell“ → 250 g → *Hinzufügen*. Same with „Ei, ganz, roh“ → 3 Stück, „Butter“ → 125 g, „Zucker, weiß“ → 150 g. The box „Pro Portion“ updates live.
+- [ ] Type a line by hand („2 Zwiebeln“): green chip „Zwiebel …“ with kcal. Tap it → choose another food.
+- [ ] Save → recipe page shows „Kuchen & Torten · Deutsch“, „Vegetarisch“, and under *Nährwertdetails* also sugar, fibre and salt.
+- [ ] *Lebensmittel* (menu): search „paprika“, filter *Käse*; ~1,300 entries.
+- [ ] *Ernährungsplan*: open a meal → *Zufällig tauschen* swaps the recipe (meal-prep: all days), *Selbst wählen* opens a searchable list. *Einkaufsliste* follows and is sorted by aisle.
 
 Anything off? Note the step number and what you saw.

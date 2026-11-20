@@ -12,7 +12,10 @@ import { setRecipeStatusAction } from '@/app/(dashboard)/recipes/actions'
 
 const checkKey = (id: string) => `vitus.check.${id}`
 
-export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: RecipeView; targetKcal?: number; canEdit: boolean }) {
+export default function RecipeDetail({ recipe, targetKcal, canEdit, labels }: {
+  recipe: RecipeView; targetKcal?: number; canEdit: boolean
+  labels?: { course: string | null; cuisine: string | null }
+}) {
   const perServingKcal = recipe.nutrition.kcal
   // From the meal plan: ?kcal=… → scale to that calorie target
   const initialServings = targetKcal && perServingKcal
@@ -117,6 +120,15 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
 
       {/* 2. Title / time / servings */}
       <header className="space-y-3">
+        {(labels?.course || labels?.cuisine || recipe.diet.length > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {labels?.course && recipe.course && <Link href={`/recipes?art=${recipe.course}`} className="px-3 py-1 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] text-sm font-bold">{labels.course}</Link>}
+            {labels?.cuisine && recipe.cuisine && <Link href={`/recipes?kueche=${recipe.cuisine}`} className="px-3 py-1 rounded-full bg-[hsl(var(--input-bg))] text-sm font-bold">{labels.cuisine}</Link>}
+            {recipe.diet.includes('vegan')
+              ? <span className="px-3 py-1 rounded-full bg-green-100 text-green-900 dark:bg-green-950/50 dark:text-green-100 text-sm font-bold">Vegan</span>
+              : recipe.diet.includes('vegetarian') && <span className="px-3 py-1 rounded-full bg-green-100 text-green-900 dark:bg-green-950/50 dark:text-green-100 text-sm font-bold">Vegetarisch</span>}
+          </div>
+        )}
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight leading-tight">{recipe.title}</h1>
         {recipe.description && <RichText text={recipe.description} className="text-lg text-[hsl(var(--text-muted))]" />}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-base font-semibold text-[hsl(var(--text-muted))]">
@@ -253,6 +265,7 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
             ['Protein', n.protein, 'g'],
             ['Kohlenhydrate', n.carbs, 'g'],
             ['Fett', n.fat, 'g'],
+            ...(n.sugar != null ? [['davon Zucker', n.sugar, 'g'], ['Ballaststoffe', n.fiber, 'g'], ['Salz', n.salt, 'g']] : []),
           ].map(([label, val, unit]) => (
             <div key={label as string} className="rounded-xl bg-[hsl(var(--input-bg))] p-3">
               <dt className="text-sm font-semibold text-[hsl(var(--text-muted))]">{label}</dt>
@@ -266,6 +279,7 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
           {n.source === 'computed' && `Berechnet aus ${n.matched} von ${n.total} Zutaten (Lebensmittel-Datenbank).`}
           {n.source === 'none' && 'Keine Nährwerte hinterlegt und keine Zutat in der Lebensmittel-Datenbank gefunden.'}
         </p>
+        <p className="mt-2 text-xs text-[hsl(var(--text-muted))]">Nährwertdaten: Schweizer Nährwertdatenbank, Bundesamt für Lebensmittelsicherheit und Veterinärwesen BLV (naehrwertdaten.ch). Diät-Angaben aus den verknüpften Zutaten, ohne Gewähr.</p>
       </details>
 
       {/* Sticky cook button on phones */}

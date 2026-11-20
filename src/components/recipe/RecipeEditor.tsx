@@ -3,11 +3,12 @@
 import { useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowUp, ArrowDown, Plus, Trash2, Camera, ImageIcon, Save, Timer, X, Check, AlertTriangle, Heading, FilePen, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, ArrowUp, ArrowDown, Plus, Trash2, Camera, ImageIcon, Save, Timer, X, Check, AlertTriangle, Heading, FilePen, CheckCircle2, Database, Link2 } from 'lucide-react'
 import { parseIngredientLine, formatAmount } from '@/lib/recipe/ingredients'
-import { plainName } from '@/lib/recipe/nutrition'
+import { plainName, indexFoods, matchFood, gramsFor, computeMacros, perServing, type FoodItemLite } from '@/lib/recipe/nutrition'
+import type { CourseLookup, Lookup } from '@/lib/food/server'
+import FoodPicker from './FoodPicker'
 import { detectTimers, formatDuration } from '@/lib/recipe/timers'
-import { MEAL_TYPES } from '@/lib/recipe/validate'
 import { uploadRecipeImage } from '@/lib/client/resizeImage'
 import { saveRecipeAction, deleteRecipeAction } from '@/app/(dashboard)/recipes/actions'
 import { RecipeImage } from './parts'
@@ -28,6 +29,10 @@ export type EditorInitial = {
   mealType: string
   tags: string[]
   ingredientLines: string[]
+  /** linked food per line (same index) */
+  ingredientFoodIds: (string | null)[]
+  course: string
+  cuisine: string
   steps: { text: string; timerMinutes: string; section?: string | null }[]
   imageUrl: string | null
   status: 'draft' | 'ready'
@@ -61,7 +66,6 @@ function fromRows(rows: StepRow[]) {
   return out
 }
 
-const MEAL_TYPE_LABELS: Record<string, string> = { breakfast: 'Frühstück', lunch: 'Mittagessen', dinner: 'Abendessen', snack: 'Snack' }
 
 let keySeq = 0
 const newKey = () => `k${++keySeq}`
@@ -87,7 +91,12 @@ function Field({ label, children, hint }: { label: string; children: React.React
 const input = 'input-apple bg-[hsl(var(--background))] text-lg min-h-12'
 const iconBtn = 'w-11 h-11 shrink-0 rounded-xl flex items-center justify-center bg-[hsl(var(--input-bg))] active:scale-95 disabled:opacity-30'
 
-export default function RecipeEditor({ initial, foodNames }: { initial: EditorInitial; foodNames: string[] }) {
+export default function RecipeEditor({ initial, foods, courses, cuisines }: {
+  initial: EditorInitial
+  foods: FoodItemLite[]
+  courses: CourseLookup[]
+  cuisines: Lookup[]
+}) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [errors, setErrors] = useState<string[]>([])
@@ -101,10 +110,12 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
   const [fridgeDays, setFridgeDays] = useState(initial.fridgeDays)
   const [freezable, setFreezable] = useState<boolean | null>(initial.freezable)
   const [notes, setNotes] = useState(initial.notes)
-  const [mealType, setMealType] = useState(initial.mealType)
+  const [course, setCourse] = useState(initial.course)
+  const [cuisine, setCuisine] = useState(initial.cuisine)
+  const [picker, setPicker] = useState<{ mode: 'link' | 'add'; row?: number; query?: string } | null>(null)
   const [tags, setTags] = useState(initial.tags.join(', '))
-  const [ings, setIngs] = useState(() =>
-    (initial.ingredientLines.length ? initial.ingredientLines : ['']).map(text => ({ key: newKey(), text })))
+  const [ings, setIngs] = useState<{ key: string; text: string; foodId: string | null }[]>(() =>
+    (initial.ingredientLines.length ? initial.ingredientLines : ['']).map((text, i) => ({ key: newKey(), text, foodId: initial.ingredientFoodIds[i] ?? null })))
   const [steps, setSteps] = useState<StepRow[]>(() => toRows(initial.steps))
   const [status, setStatus] = useState<'draft' | 'ready'>(initial.status)
   const [rating, setRating] = useState(initial.rating)
@@ -114,7 +125,39 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
   const [removeImage, setRemoveImage] = useState(false)
   const cameraRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
-  const foodSet = useMemo(() => new Set(foodNames.map(n => n.toLowerCase())), [foodNames])
+  const foodIndex = useMemo(() => indexFoods(foods), [foods])
+
+  // Every row parsed and matched once per render
+  const rows = useMemo(() => ings.map(ing => {
+    const text = ing.text.trim()
+    const isGroup = /^#/.test(text)
+    const parsed = text && !isGroup ? { ...parseIngredientLine(text.replace(/\s+\*+$/, '')), food_item_id: ing.foodId } : null
+    const food = parsed ? matchFood(parsed, foodIndex) : null
+    const grams = parsed && food ? gramsFor(parsed, food) : null
+    return { isGroup, parsed, food, grams }
+  }), [ings, foodIndex])
+
+  // Live nutrition per serving, like the recipe page will show it
+  const live = useMemo(() => {
+    const list = rows.flatMap(r => (r.parsed ? [r.parsed] : []))
+    const n = Math.max(1, parseInt(servings, 10) || 1)
+    return perServing(computeMacros(list, foodIndex), n, { kcal: null, protein: null })
+  }, [rows, servings, foodIndex])
+
+  const onPicked = (food: FoodItemLite, line?: string) => {
+    if (!picker) return
+    if (picker.mode === 'link' && picker.row !== undefined) {
+      const row = picker.row
+      setIngs(p => p.map((x, i) => (i === row ? { ...x, foodId: food.id } : x)))
+    } else if (line) {
+      setIngs(p => {
+        const last = p[p.length - 1]
+        const entry = { key: newKey(), text: line, foodId: food.id }
+        return last && !last.text.trim() ? [...p.slice(0, -1), entry] : [...p, entry]
+      })
+    }
+    setPicker(null)
+  }
 
   const pickImage = (f: File | undefined) => {
     if (!f) return
@@ -135,7 +178,7 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
     const lines = text.split(/\r?\n/).map(l => l.replace(/^\s*[-*•]\s+/, '').trim()).filter(Boolean)
     setIngs(prev => {
       const copy = prev.slice()
-      copy.splice(idx, 1, ...lines.map(t => ({ key: newKey(), text: t })))
+      copy.splice(idx, 1, ...lines.map(t => ({ key: newKey(), text: t, foodId: null })))
       return copy
     })
   }
@@ -146,8 +189,9 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
       const res = await saveRecipeAction(initial.id, {
         title, description, servings, prep_time: prepTime, cook_time: cookTime,
         kcal_per_serving: kcal, protein_per_serving: protein, fridge_days: fridgeDays,
-        freezable, notes, meal_type: mealType || null, tags, status, rating,
+        freezable, notes, tags, status, rating, course: course || null, cuisine: cuisine || null,
         ingredientLines: ings.map(i => i.text),
+        ingredientFoodIds: ings.map(i => i.foodId),
         steps: fromRows(steps),
         sections: sections.map(({ heading, body }) => ({ heading, body })),
       }, initial.updatedAt)
@@ -240,19 +284,25 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
         <Field label="Kurzbeschreibung"><textarea className={`${input} min-h-20`} value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={3} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Portionen *"><input className={input} type="number" inputMode="numeric" min={1} max={50} value={servings} onChange={e => setServings(e.target.value)} required /></Field>
-          <Field label="Mahlzeit">
-            <select className={input} value={mealType} onChange={e => setMealType(e.target.value)}>
+          <Field label="Art">
+            <select className={input} value={course} onChange={e => setCourse(e.target.value)}>
               <option value="">–</option>
-              {MEAL_TYPES.map(m => <option key={m} value={m}>{MEAL_TYPE_LABELS[m]}</option>)}
+              {courses.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Küche">
+            <select className={input} value={cuisine} onChange={e => setCuisine(e.target.value)}>
+              <option value="">–</option>
+              {cuisines.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
             </select>
           </Field>
           <Field label="Vorbereitung (Min.)"><input className={input} type="number" inputMode="numeric" min={0} value={prepTime} onChange={e => setPrepTime(e.target.value)} /></Field>
           <Field label="Kochzeit (Min.)"><input className={input} type="number" inputMode="numeric" min={0} value={cookTime} onChange={e => setCookTime(e.target.value)} /></Field>
-          <Field label="kcal pro Portion"><input className={input} type="number" inputMode="numeric" min={0} value={kcal} onChange={e => setKcal(e.target.value)} placeholder="auto" /></Field>
-          <Field label="Protein pro Portion (g)"><input className={input} type="text" inputMode="decimal" value={protein} onChange={e => setProtein(e.target.value)} placeholder="auto" /></Field>
+          <Field label="kcal pro Portion"><input className={input} type="number" inputMode="numeric" min={0} value={kcal} onChange={e => setKcal(e.target.value)} placeholder={live.kcal != null ? `auto: ${live.kcal}` : 'auto'} /></Field>
+          <Field label="Protein pro Portion (g)"><input className={input} type="text" inputMode="decimal" value={protein} onChange={e => setProtein(e.target.value)} placeholder={live.protein != null ? `auto: ${String(live.protein).replace('.', ',')}` : 'auto'} /></Field>
           <Field label="Bewertung (0–10)"><input className={input} type="number" inputMode="numeric" min={0} max={10} value={rating} onChange={e => setRating(e.target.value)} placeholder="–" /></Field>
         </div>
-        <p className="text-sm text-[hsl(var(--text-muted))]">Leer lassen = aus Zutaten berechnen (nur Zutaten aus der Lebensmittel-Datenbank zählen).</p>
+        <p className="text-sm text-[hsl(var(--text-muted))]">Leer lassen = aus den Zutaten berechnen (Zutaten mit Nährwerten aus der Lebensmittel-Datenbank). „Art“ bestimmt, ob und wofür der Wochenplan das Rezept nimmt – Kuchen, Kekse und Desserts als Snack.</p>
         <Field label="Tags" hint="Mit Komma trennen, z. B. mealprep, high-protein, vegetarisch">
           <input className={input} value={tags} onChange={e => setTags(e.target.value)} />
         </Field>
@@ -262,35 +312,59 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
       <section className="card-apple !p-4 space-y-3">
         <h2 className="text-xl font-bold">Zutaten</h2>
         <p className="text-sm text-[hsl(var(--text-muted))]">Eine Zutat pro Zeile, z. B. „400 g Kidneybohnen“ oder „2 EL Olivenöl“. „### Sauce“ beginnt eine Gruppe, „ *“ am Ende ist eine Fußnote. Mehrere Zeilen einfügen geht auch.</p>
-        <datalist id="food-names">{foodNames.map(n => <option key={n} value={n} />)}</datalist>
         <ol className="space-y-2">
           {ings.map((ing, idx) => {
-            const isGroup = /^#/.test(ing.text.trim())
-            const parsed = ing.text.trim() && !isGroup ? parseIngredientLine(ing.text.replace(/\s+\*+$/, '')) : null
-            const inDb = parsed ? foodSet.has(parsed.name.trim().toLowerCase()) || foodSet.has(plainName(parsed.name).toLowerCase()) : false
+            const { isGroup, parsed, food, grams } = rows[idx]
             return (
               <li key={ing.key} className="rounded-2xl bg-[hsl(var(--input-bg))]/50 p-2">
                 <div className="flex items-center gap-1.5">
-                  <input className={`${input} flex-1 min-w-0 ${isGroup ? 'font-bold' : ''}`} value={ing.text} list="food-names"
+                  <input className={`${input} flex-1 min-w-0 ${isGroup ? 'font-bold' : ''}`} value={ing.text}
                     onChange={e => setIngs(p => p.map((x, i) => (i === idx ? { ...x, text: e.target.value } : x)))}
                     onPaste={e => onIngPaste(idx, e)} placeholder="400 g Kidneybohnen" aria-label={`Zutat ${idx + 1}`} />
                   <button type="button" className={iconBtn} onClick={() => setIngs(p => move(p, idx, idx - 1))} disabled={idx === 0} aria-label="Nach oben"><ArrowUp size={20} /></button>
                   <button type="button" className={iconBtn} onClick={() => setIngs(p => move(p, idx, idx + 1))} disabled={idx === ings.length - 1} aria-label="Nach unten"><ArrowDown size={20} /></button>
-                  <button type="button" className={`${iconBtn} text-red-600`} onClick={() => setIngs(p => (p.length > 1 ? p.filter((_, i) => i !== idx) : [{ key: newKey(), text: '' }]))} aria-label="Entfernen"><Trash2 size={20} /></button>
+                  <button type="button" className={`${iconBtn} text-red-600`} onClick={() => setIngs(p => (p.length > 1 ? p.filter((_, i) => i !== idx) : [{ key: newKey(), text: '', foodId: null }]))} aria-label="Entfernen"><Trash2 size={20} /></button>
                 </div>
                 {parsed && (
-                  <p className="text-sm pl-2 pt-1 text-[hsl(var(--text-muted))] flex items-center gap-1.5">
+                  <div className="text-sm pl-2 pt-1 text-[hsl(var(--text-muted))] flex flex-wrap items-center gap-x-1.5 gap-y-1">
                     {parsed.qty !== null
                       ? <><span className="font-bold text-[hsl(var(--text))]">{formatAmount(parsed)}</span> · {parsed.name}</>
                       : <span>wird als Text übernommen</span>}
-                    {inDb && <span className="ml-1 inline-flex items-center gap-0.5 text-green-700 dark:text-green-400 font-semibold"><Check size={14} /> Nährwerte</span>}
-                  </p>
+                    {food ? (
+                      <button type="button" onClick={() => setPicker({ mode: 'link', row: idx, query: plainName(parsed.name) })}
+                        className="min-h-9 inline-flex items-center gap-1 rounded-lg px-2 text-green-800 dark:text-green-300 bg-green-100/70 dark:bg-green-950/40 font-semibold text-left">
+                        <Check size={14} className="shrink-0" /> {food.name}
+                        {parsed.qty !== null && (grams != null ? ` · ${Math.round(food.kcal_100g * grams / 100)} kcal` : ' · Gewicht unbekannt, in g angeben')}
+                      </button>
+                    ) : parsed.qty !== null && (
+                      <button type="button" onClick={() => setPicker({ mode: 'link', row: idx, query: plainName(parsed.name) })}
+                        className="min-h-9 inline-flex items-center gap-1 rounded-lg px-2 text-amber-800 dark:text-amber-200 bg-amber-100/70 dark:bg-amber-950/40 font-semibold">
+                        <Link2 size={14} /> Nährwerte verknüpfen
+                      </button>
+                    )}
+                  </div>
                 )}
               </li>
             )
           })}
         </ol>
-        <button type="button" onClick={() => setIngs(p => [...p, { key: newKey(), text: '' }])} className="btn-secondary h-12 gap-2 w-full"><Plus size={20} /> Zutat hinzufügen</button>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setPicker({ mode: 'add' })} className="btn-primary h-12 gap-2"><Database size={20} /> Aus Datenbank</button>
+          <button type="button" onClick={() => setIngs(p => [...p, { key: newKey(), text: '', foodId: null }])} className="btn-secondary h-12 gap-2"><Plus size={20} /> Als Text</button>
+        </div>
+        <div className="rounded-2xl bg-[hsl(var(--input-bg))] p-3" aria-live="polite">
+          <p className="text-sm font-bold mb-1">Pro Portion (aus den Zutaten)</p>
+          {live.kcal != null ? (
+            <p className="text-lg font-extrabold">
+              {live.kcal} kcal · {String(live.protein).replace('.', ',')} g Protein
+              <span className="text-sm font-semibold text-[hsl(var(--text-muted))]"> · {String(live.carbs).replace('.', ',')} g KH · {String(live.fat).replace('.', ',')} g Fett</span>
+            </p>
+          ) : <p className="font-semibold text-[hsl(var(--text-muted))]">Noch nichts berechenbar.</p>}
+          <p className="text-xs text-[hsl(var(--text-muted))] mt-1">{live.matched} von {rows.filter(r => r.parsed?.qty != null).length} Zutaten mit Menge haben Nährwerte.</p>
+        </div>
+        {picker && (
+          <FoodPicker foods={foods} mode={picker.mode} initialQuery={picker.query} onPick={onPicked} onClose={() => setPicker(null)} />
+        )}
       </section>
 
       {/* Steps */}
