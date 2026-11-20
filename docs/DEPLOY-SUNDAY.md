@@ -79,7 +79,7 @@ Use your phone on mobile data or Wi-Fi, logged in as the WG planner. Tick each b
 
 **Recipe page**
 - [ ] Open "Hähnchen-Brokkoli-Wok": order is image → title → kcal/protein chips → ingredients → steps → (storage, once filled in) → *Nährwertdetails* collapsed at the bottom.
-- [ ] Servings + → amounts change (4 → 5 portions: 600 g → 750 g).
+- [ ] Servings + → amounts change (4 → 5 portions: Hähnchenbrust 600 g → 750 g, Olivenöl 40 g → 50 g).
 - [ ] Tap two ingredients → crossed out; leave and come back → still ticked; *Häkchen zurücksetzen* clears them.
 
 **Cook mode** (the main test, do it with the phone lying in the kitchen)
