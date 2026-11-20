@@ -4,7 +4,9 @@ import { planImport, applyImport, summarize } from '../importer'
 
 /** Tiny in-memory stand-in for the parts of supabase-js the importer uses. */
 function fakeDb(initial: Record<string, any[]> = {}) {
-  const tables: Record<string, any[]> = { recipes: [], food_items: [], ...initial }
+  const tables: Record<string, any[]> = new Proxy({ recipes: [], food_items: [], ...initial } as Record<string, any[]>, {
+    get: (t, k: string) => (t[k] ??= []),
+  })
   let seq = 0
   let clock = Date.now()
   // always later than real time, like the database's now() after an import
@@ -19,6 +21,8 @@ function fakeDb(initial: Record<string, any[]> = {}) {
       select: () => q,
       in: (col: string, vals: any[]) => { filters.push(r => vals.includes(r[col])); return q },
       eq: (col: string, val: any) => { filters.push(r => r[col] === val); return q },
+      order: () => q,
+      range: () => q,
       like: (col: string, pat: string) => { const p = pat.replace('%', ''); filters.push(r => String(r[col] ?? '').startsWith(p)); return q },
       insert: (p: any) => { op = 'insert'; payload = p; return q },
       update: (p: any) => { op = 'update'; payload = p; return q },

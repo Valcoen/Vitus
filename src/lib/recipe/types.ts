@@ -1,5 +1,5 @@
 import type { Ingredient } from './ingredients'
-import type { PerServing } from './nutrition'
+import type { PerServing, Diet } from './nutrition'
 import type { RecipeStep } from './markdown'
 
 /** A recipe as the UI sees it, whatever format it is stored in. */
@@ -22,7 +22,13 @@ export type RecipeView = {
   totalTime: number | null
   tags: string[]
   mealType: string | null
-  ingredients: (Ingredient & { kcal100?: number | null })[]
+  /** recipe_courses.slug ("Art") */
+  course: string | null
+  /** cuisines.slug ("Küche") */
+  cuisine: string | null
+  /** derived from the linked foods */
+  diet: Diet[]
+  ingredients: (Ingredient & { kcal100?: number | null; foodName?: string | null })[]
   steps: RecipeStep[]
   notes: string | null
   fridgeDays: number | null

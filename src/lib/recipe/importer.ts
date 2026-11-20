@@ -8,10 +8,11 @@
 
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { parseRecipeMarkdown, type RecipeDoc } from './markdown'
+import { parseRecipeMarkdown, slugify, type RecipeDoc } from './markdown'
 import { validateRecipe, ingredientsToLines, type RecipeInput } from './validate'
 import { insertRecipe, updateRecipe } from './save'
 import { storeRecipeImage } from '../imageStore'
+import { loadTaxonomy, type Taxonomy } from '../food/server'
 
 export type ImportFile = { name: string; text: string }
 export type ImportImage = { name: string; data: Buffer }
@@ -55,9 +56,29 @@ export function importStatus(doc: RecipeDoc, currentStatus?: string | null): 're
   return doc.status === 'ready' || currentStatus === 'ready' ? 'ready' : 'draft'
 }
 
-export function docToInput(doc: RecipeDoc, currentStatus?: string | null): RecipeInput {
+/** "Kuchen & Torten", "kuchen", "Italienisch" → slug; unknown → null + warning. */
+export function resolveCategories(doc: RecipeDoc, tax: Taxonomy | null): { course: string | null; cuisine: string | null; warnings: string[] } {
+  const warnings: string[] = []
+  const find = (value: string | null, list: { slug: string; label: string }[], what: string) => {
+    if (!value) return null
+    const key = slugify(value)
+    const hit = list.find(x => x.slug === key || slugify(x.label) === key || slugify(x.label).startsWith(key + '-'))
+    if (!hit) warnings.push(`${what} „${value}“ unbekannt – bitte im Editor wählen`)
+    return hit?.slug ?? null
+  }
+  return {
+    course: find(doc.course, tax?.courses ?? [], 'Art'),
+    cuisine: find(doc.cuisine, tax?.cuisines ?? [], 'Küche'),
+    warnings,
+  }
+}
+
+export function docToInput(doc: RecipeDoc, currentStatus?: string | null, tax?: Taxonomy | null): RecipeInput {
+  const cats = resolveCategories(doc, tax ?? null)
   return {
     title: doc.title,
+    course: cats.course,
+    cuisine: cats.cuisine,
     status: importStatus(doc, currentStatus),
     rating: doc.rating,
     sections: doc.extra_sections,
@@ -78,12 +99,13 @@ export function docToInput(doc: RecipeDoc, currentStatus?: string | null): Recip
 
 type Parsed = { item: ImportItem; doc?: RecipeDoc; hash?: string }
 
-function parseAll(files: ImportFile[]): Parsed[] {
+function parseAll(files: ImportFile[], tax: Taxonomy | null = null): Parsed[] {
   const seen = new Map<string, string>()
   return files.slice(0, MAX_FILES).map(f => {
     const base: ImportItem = { file: f.name, slug: null, title: null, action: 'error', warnings: [] }
     if (Buffer.byteLength(f.text, 'utf8') > MAX_MD_BYTES) return { item: { ...base, reason: 'Datei größer als 1 MB' } }
     const { doc, warnings } = parseRecipeMarkdown(f.text, f.name)
+    if (tax) warnings.push(...resolveCategories(doc, tax).warnings)
     const item: ImportItem = { ...base, slug: doc.slug, title: doc.title, warnings }
     const dup = seen.get(doc.slug)
     if (dup) return { item: { ...item, reason: `Gleicher Slug wie „${dup}“` } }
@@ -108,7 +130,7 @@ export async function planImport(supabase: SupabaseClient, files: ImportFile[], 
 }
 
 async function classify(supabase: SupabaseClient, files: ImportFile[]): Promise<ImportItem[]> {
-  const parsed = parseAll(files)
+  const parsed = parseAll(files, await loadTaxonomy(supabase))
   const slugs = parsed.filter(p => p.doc).map(p => p.doc!.slug)
   const { data: existing } = slugs.length
     ? await supabase.from('recipes').select('id, slug, status, updated_at, last_imported_at, import_hash').in('slug', slugs)
@@ -146,6 +168,7 @@ export async function applyImport(
   overwrite: Set<string>,
 ): Promise<ImportItem[]> {
   const plan = await classify(supabase, files)
+  const tax = await loadTaxonomy(supabase)
   const parsed = new Map(parseAll(files).filter(p => p.doc).map(p => [p.item.file, p]))
   const mdCount = files.length
   const results: ImportItem[] = []
@@ -158,7 +181,7 @@ export async function applyImport(
       continue
     }
     const doc = p.doc!
-    const v = validateRecipe(docToInput(doc, item.currentStatus))
+    const v = validateRecipe(docToInput(doc, item.currentStatus, tax))
     if (!v.ok) {
       results.push({ ...item, action: 'error', reason: v.errors.join('; ') })
       continue

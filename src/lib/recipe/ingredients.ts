@@ -45,6 +45,8 @@ const UNIT_ALIASES: Record<string, string> = {
   becher: 'Becher', glas: 'Glas', tasse: 'Tasse', cup: 'Tasse', cups: 'Tasse',
   handvoll: 'Handvoll', handful: 'Handvoll',
   msp: 'Msp', 'msp.': 'Msp',
+  stange: 'Stange', stangen: 'Stange', zweig: 'Zweig', zweige: 'Zweig', blatt: 'Blatt', blätter: 'Blatt',
+  kopf: 'Kopf', köpfe: 'Kopf', knolle: 'Knolle', knollen: 'Knolle', tropfen: 'Tropfen', schuss: 'Schuss',
 }
 
 const UNICODE_FRACTIONS: Record<string, number> = {

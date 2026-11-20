@@ -42,6 +42,9 @@ export type RecipeDoc = {
   status: string | null
   /** 0–10, like the Obsidian notes */
   rating: number | null
+  /** "Art" and "Küche" as written (slug or label); resolved on import */
+  course: string | null
+  cuisine: string | null
   description: string | null
   image: string | null
   servings: number
@@ -72,6 +75,7 @@ export type ParseResult = {
 const KNOWN_KEYS = new Set([
   'slug', 'title', 'status', 'image', 'servings', 'prep_time', 'cook_time',
   'kcal', 'protein', 'fridge_days', 'freezable', 'tags', 'created', 'description', 'rating',
+  'course', 'art', 'gang', 'cuisine', 'küche', 'kueche',
 ])
 
 const SECTION_ALIASES: Record<string, 'ingredients' | 'steps' | 'notes'> = {
@@ -193,6 +197,14 @@ function introMinutes(intro: string, keys: RegExp): number | null {
 
 export const DEFAULT_SERVINGS = 4
 
+function firstString(...values: (FrontmatterValue | undefined)[]): string | null {
+  for (const v of values) {
+    const s = Array.isArray(v) ? v[0] : v
+    if (typeof s === 'string' && s.trim()) return s.trim()
+  }
+  return null
+}
+
 export function parseRecipeMarkdown(text: string, filename?: string): ParseResult {
   const warnings: string[] = []
   const { yaml, body } = splitFrontmatter(text)
@@ -282,6 +294,8 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
     title,
     status,
     rating: rating === null ? null : Math.round(rating),
+    course: firstString(fm.course, fm.art, fm.gang),
+    cuisine: firstString(fm.cuisine, fm['küche'], fm.kueche),
     description,
     image: imageFm ?? embeddedImage,
     servings,
@@ -311,6 +325,8 @@ export function recipeToMarkdown(doc: RecipeDoc): string {
     ['slug', doc.slug],
     ['status', doc.status === 'ready' ? 'ready' : 'draft'],
     ['rating', doc.rating ?? undefined],
+    ['course', doc.course ?? undefined],
+    ['cuisine', doc.cuisine ?? undefined],
     ['image', doc.image ?? undefined],
     ['servings', doc.servings],
     ['prep_time', doc.prep_time ?? undefined],

@@ -24,8 +24,13 @@ export type RecipeInput = {
   status?: string | null
   /** 0–10 */
   rating?: number | string | null
+  /** recipe_courses.slug / cuisines.slug */
+  course?: string | null
+  cuisine?: string | null
   /** One ingredient per line; "### Gruppe" starts a group, a trailing " *" is a footnote mark */
   ingredientLines: string[]
+  /** Food picked from the database for each line (same index as ingredientLines) */
+  ingredientFoodIds?: (string | null)[]
   steps: { text: string; timer_minutes?: number | string | null; section?: string | null }[]
   /** Free sections like "Regeln" */
   sections?: { heading: string; body: string }[]
@@ -46,6 +51,8 @@ export type CleanRecipe = {
   tags: string[]
   status: 'draft' | 'ready'
   rating: number | null
+  course: string | null
+  cuisine: string | null
   ingredients: Ingredient[]
   steps: RecipeStep[]
   extra_sections: { heading: string; body: string }[]
@@ -54,6 +61,20 @@ export type CleanRecipe = {
 }
 
 export const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const slugOrNull = (v: unknown) => (typeof v === 'string' && /^[a-z0-9-]{2,40}$/.test(v) ? v : null)
+
+/**
+ * Legacy `meal_type` (used by the week planner) from the course's planner
+ * slots: breakfast → breakfast, lunch/dinner → lunch (the planner treats
+ * lunch and dinner as interchangeable), snack → snack.
+ */
+export function mealTypeForSlots(slots: string[] | null | undefined): string | null {
+  if (!slots?.length) return null
+  if (slots.includes('lunch') || slots.includes('dinner')) return 'lunch'
+  return slots[0]
+}
 
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
@@ -93,11 +114,14 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
   const rawTags = Array.isArray(input.tags) ? input.tags : String(input.tags ?? '').split(/[,\n]/)
   const tags = [...new Set(rawTags.map(normalizeTag).filter(Boolean))].slice(0, 20)
 
-  const lines = (input.ingredientLines ?? []).map(l => cleanText(l, 300)).filter(Boolean)
+  const foodIds = input.ingredientFoodIds ?? []
+  const lines = (input.ingredientLines ?? [])
+    .map((l, i) => ({ text: cleanText(l, 300), foodId: typeof foodIds[i] === 'string' && UUID.test(foodIds[i]!) ? foodIds[i] : null }))
+    .filter(l => l.text)
   if (lines.length > 100) errors.push('Maximal 100 Zutaten')
   const ingredients: Ingredient[] = []
   let group: string | null = null
-  for (const line of lines.slice(0, 100)) {
+  for (const { text: line, foodId } of lines.slice(0, 100)) {
     const heading = line.match(/^#{1,6}\s*(.+)$/)
     if (heading) {
       group = heading[1].trim().slice(0, 80)
@@ -106,6 +130,7 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
     const mark = line.match(/\s+(\*+)$/)
     const ing = parseIngredientLine(mark ? line.slice(0, mark.index) : line, group)
     if (mark) ing.mark = mark[1]
+    if (foodId) ing.food_item_id = foodId
     ingredients.push(ing)
   }
 
@@ -135,6 +160,8 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
     meal_type: mealType,
     tags,
     status: input.status === 'ready' ? 'ready' : 'draft',
+    course: slugOrNull(input.course),
+    cuisine: slugOrNull(input.cuisine),
     rating: num(input.rating, 'Bewertung', 0, 10, errors),
     ingredients,
     steps,

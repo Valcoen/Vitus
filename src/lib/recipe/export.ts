@@ -16,6 +16,8 @@ export function viewToDoc(r: RecipeView): RecipeDoc {
     title: r.title,
     status: r.status,
     rating: r.rating,
+    course: r.course,
+    cuisine: r.cuisine,
     description: r.description,
     image: r.imageUrl,
     servings: r.servings,
