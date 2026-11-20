@@ -1,6 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
+import { toPlannerIngredients } from '@/lib/recipe/nutrition'
 
 export default async function ShoppingPage() {
   const supabase = await createClient()
@@ -33,11 +34,15 @@ export default async function ShoppingPage() {
   }
 
   // ─── Fetch meals with recipes for this household ───
-  const { data: meals } = await supabase
+  const { data: rawMeals } = await supabase
     .from('meals')
     .select('id, name, meal_type, recipe_id, is_shared, recipes(id, title, ingredients, standard_servings)')
     .eq('household_id', userData.household_id)
     .order('day_index', { ascending: true })
+  // New-format recipes → { name: grams }, legacy formats unchanged
+  const meals = (rawMeals || []).map((m: any) => m.recipes
+    ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients) } }
+    : m)
 
   // ─── Fetch meal_portions for this user ───
   const mealIds = (meals || []).map((m: any) => m.id)

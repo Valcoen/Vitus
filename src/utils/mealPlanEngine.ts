@@ -10,6 +10,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { toPlannerIngredients } from '@/lib/recipe/nutrition'
 import {
   calculateAge,
   adjustForGoal,
@@ -495,7 +496,11 @@ export async function generateMealPlan(
       return { success: false, error: `Fehler beim Laden der Rezepte: ${recipesError.message}` }
     }
 
-    const allRecipes = (recipesData || []) as RecipeRow[]
+    // New-format recipes are converted to { name: grams } so the code below keeps working
+    const allRecipes = ((recipesData || []) as RecipeRow[]).map(r => ({
+      ...r,
+      ingredients: toPlannerIngredients(r.ingredients) as RecipeRow['ingredients'],
+    }))
 
     if (allRecipes.length === 0) {
       return { success: false, error: 'Es sind noch keine Rezepte vorhanden. Bitte erstelle zuerst Rezepte unter "Rezepte".' }

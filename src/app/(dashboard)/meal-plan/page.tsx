@@ -5,6 +5,7 @@ import { Sparkles, Info } from 'lucide-react'
 import { scaleRecipeToTarget, computeTotalCookingAmounts } from '@/utils/macroScaler'
 import type { FoodItem, ScaledResult } from '@/utils/macroScaler'
 import { generateMealPlan } from '@/utils/mealPlanEngine'
+import { toPlannerIngredients } from '@/lib/recipe/nutrition'
 import type { HouseholdMember, MealPlanOptions } from '@/utils/mealPlanEngine'
 import MealPlanCalendar from '@/components/MealPlanCalendar'
 import type { CalendarDay, CalendarMeal, PersonPortion, CookingTotal } from '@/components/MealPlanCalendar'
@@ -34,10 +35,14 @@ export default async function MealPlanPage() {
     const membersMap = Object.fromEntries(householdMembers.map(m => [m.id, m]))
 
     // Fetch meals with recipes AND meal_portions
-    const { data: meals } = userData?.household_id ? await supabase.from('meals')
+    const { data: rawMeals } = userData?.household_id ? await supabase.from('meals')
         .select(`*, recipes(title, id, ingredients)`)
         .eq('household_id', userData.household_id)
         .order('day_index', { ascending: true }) : { data: [] }
+    // New-format recipes → { name: grams } for the macro scaler
+    const meals = (rawMeals || []).map((m: any) => m.recipes
+        ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients) } }
+        : m)
 
     // Fetch all meal_portions for these meals
     const mealIds = (meals || []).map((m: any) => m.id)
