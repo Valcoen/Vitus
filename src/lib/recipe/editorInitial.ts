@@ -8,7 +8,7 @@ export function emptyEditor(): EditorInitial {
   return {
     id: null, updatedAt: null, title: '', description: '', servings: 4, prepTime: '', cookTime: '',
     kcal: '', protein: '', fridgeDays: '', freezable: null, notes: '', mealType: '', tags: [],
-    ingredientLines: [], steps: [], imageUrl: null,
+    ingredientLines: [], steps: [], imageUrl: null, status: 'draft', rating: '', sections: [],
   }
 }
 
@@ -29,7 +29,10 @@ export function editorFromRecipe(r: RecipeView): EditorInitial {
     mealType: r.mealType ?? '',
     tags: r.tags,
     ingredientLines: ingredientsToLines(r.ingredients),
-    steps: r.steps.map(st => ({ text: st.text, timerMinutes: st.timer_seconds ? String(Math.round(st.timer_seconds / 6) / 10) : '' })),
+    steps: r.steps.map(st => ({ text: st.text, timerMinutes: st.timer_seconds ? String(Math.round(st.timer_seconds / 6) / 10) : '', section: st.section ?? null })),
     imageUrl: r.imageUrl,
+    status: r.status,
+    rating: s(r.rating),
+    sections: r.extraSections,
   }
 }

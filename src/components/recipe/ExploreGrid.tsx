@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Search, Clock, Flame, Drumstick, X, SlidersHorizontal } from 'lucide-react'
-import { RecipeImage, formatMinutes } from './parts'
+import { Search, Clock, Flame, Drumstick, X, SlidersHorizontal, FilePen, Star } from 'lucide-react'
+import { RecipeImage, formatMinutes, RatingChip } from './parts'
 import { HIGH_PROTEIN_GRAMS } from '@/lib/recipe/types'
 
 export type RecipeCard = {
@@ -14,14 +14,19 @@ export type RecipeCard = {
   kcal: number | null
   protein: number | null
   tags: string[]
+  status: 'draft' | 'ready'
+  rating: number | null
   /** lower-cased text for search: title, tags, ingredient names */
   haystack: string
 }
 
 const TIME_OPTIONS = [20, 30, 45, 60]
 
-export default function ExploreGrid({ recipes, initialTag, initialQuery }: { recipes: RecipeCard[]; initialTag?: string; initialQuery?: string }) {
+export default function ExploreGrid({ recipes, initialTag, initialQuery, initialDrafts }: { recipes: RecipeCard[]; initialTag?: string; initialQuery?: string; initialDrafts?: boolean }) {
   const [query, setQuery] = useState(initialQuery ?? '')
+  const [drafts, setDrafts] = useState(!!initialDrafts)
+  const [byRating, setByRating] = useState(false)
+  const draftCount = recipes.filter(r => r.status === 'draft').length
   const [tags, setTags] = useState<string[]>(initialTag ? [initialTag] : [])
   const [maxTime, setMaxTime] = useState<number | null>(null)
   const [highProtein, setHighProtein] = useState(false)
@@ -38,19 +43,22 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery }: { rec
     const p = new URLSearchParams()
     if (query) p.set('q', query)
     if (tags.length === 1) p.set('tag', tags[0])
+    if (drafts) p.set('drafts', '1')
     const qs = p.toString()
     window.history.replaceState(window.history.state, '', qs ? `?${qs}` : window.location.pathname)
-  }, [query, tags])
+  }, [query, tags, drafts])
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const filtered = recipes.filter(r =>
+    (drafts ? r.status === 'draft' : r.status !== 'draft') &&
     words.every(w => r.haystack.includes(w)) &&
     tags.every(t => r.tags.includes(t)) &&
     (maxTime === null || (r.totalTime !== null && r.totalTime <= maxTime)) &&
     (!highProtein || (r.protein ?? 0) >= HIGH_PROTEIN_GRAMS),
   )
-  const activeFilters = tags.length + (maxTime ? 1 : 0) + (highProtein ? 1 : 0) + (query ? 1 : 0)
-  const reset = () => { setQuery(''); setTags([]); setMaxTime(null); setHighProtein(false) }
+  if (byRating) filtered.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title))
+  const activeFilters = tags.length + (maxTime ? 1 : 0) + (highProtein ? 1 : 0) + (query ? 1 : 0) + (drafts ? 1 : 0)
+  const reset = () => { setQuery(''); setTags([]); setMaxTime(null); setHighProtein(false); setDrafts(false) }
   const toggleTag = (t: string) => setTags(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]))
   const chip = (active: boolean) =>
     `h-11 px-4 rounded-full text-base font-semibold whitespace-nowrap border transition-colors ${active ? 'bg-[hsl(var(--primary))] text-white border-transparent' : 'bg-[hsl(var(--card))] border-[hsl(var(--border))]'}`
@@ -65,6 +73,14 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery }: { rec
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap" role="group" aria-label="Filter">
+        {draftCount > 0 && (
+          <button type="button" className={chip(drafts)} aria-pressed={drafts} onClick={() => setDrafts(v => !v)}>
+            <FilePen size={16} className="inline -mt-0.5 mr-1" />Entwürfe ({draftCount})
+          </button>
+        )}
+        <button type="button" className={chip(byRating)} aria-pressed={byRating} onClick={() => setByRating(v => !v)}>
+          <Star size={16} className="inline -mt-0.5 mr-1" />Beste zuerst
+        </button>
         <button type="button" className={chip(highProtein)} aria-pressed={highProtein} onClick={() => setHighProtein(v => !v)}>
           <Drumstick size={16} className="inline -mt-0.5 mr-1" />High Protein
         </button>
@@ -105,10 +121,14 @@ export default function ExploreGrid({ recipes, initialTag, initialQuery }: { rec
           {filtered.map(r => (
             <li key={r.id}>
               <Link href={`/recipes/${r.id}`} className="block rounded-3xl overflow-hidden bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-[var(--shadow-soft)] active:scale-[0.99] transition-transform">
-                <div className="aspect-[4/3] bg-[hsl(var(--input-bg))]"><RecipeImage url={r.imageUrl} title={r.title} /></div>
+                <div className="relative aspect-[4/3] bg-[hsl(var(--input-bg))]">
+                  <RecipeImage url={r.imageUrl} title={r.title} />
+                  {r.status === 'draft' && <span className="absolute top-3 left-3 rounded-full bg-amber-400 text-black px-3 py-1 text-sm font-bold">Entwurf</span>}
+                </div>
                 <div className="p-4 space-y-2">
                   <h3 className="text-lg font-bold leading-snug line-clamp-2">{r.title}</h3>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-semibold text-[hsl(var(--text-muted))]">
+                    <RatingChip rating={r.rating} />
                     {r.totalTime ? <span className="flex items-center gap-1"><Clock size={15} />{formatMinutes(r.totalTime)}</span> : null}
                     {r.kcal != null && <span className="flex items-center gap-1"><Flame size={15} />{r.kcal} kcal</span>}
                     {r.protein != null && (

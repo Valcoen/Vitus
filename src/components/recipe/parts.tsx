@@ -1,6 +1,7 @@
 'use client'
 
-import { Minus, Plus, CookingPot, Check } from 'lucide-react'
+import { Fragment, type ReactNode } from 'react'
+import { Minus, Plus, CookingPot, Check, Star } from 'lucide-react'
 import { formatAmount, scaleIngredient, type Ingredient } from '@/lib/recipe/ingredients'
 
 /** Big, wet-hands-friendly +/- control. */
@@ -76,6 +77,7 @@ export function IngredientChecklist({
               <span className={`flex-1 ${large ? 'text-2xl' : 'text-lg'} ${isChecked ? 'line-through opacity-50' : ''}`}>
                 {amount && <span className="font-extrabold mr-2 tabular-nums">{amount}</span>}
                 <span className="font-medium">{ing.qty === null ? ing.raw : ing.name}</span>
+                {ing.mark && <sup className="ml-0.5 font-bold opacity-70">{ing.mark}</sup>}
               </span>
             </button>
           </li>
@@ -91,4 +93,51 @@ export function formatMinutes(min: number | null): string | null {
   const h = Math.floor(min / 60)
   const m = min % 60
   return m ? `${h} Std. ${m} Min.` : `${h} Std.`
+}
+
+/** **bold** inside a line → <strong>. Everything stays React text (escaped). */
+function inline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4
+      ? <strong key={i} className="font-bold text-[hsl(var(--text))]">{part.slice(2, -2)}</strong>
+      : <Fragment key={i}>{part.replace(/\\([*_#])/g, '$1')}</Fragment>,
+  )
+}
+
+/**
+ * Tiny Markdown subset for Obsidian text: paragraphs, "- " lists, **bold**.
+ * No HTML is ever interpreted.
+ */
+export function RichText({ text, className = '' }: { text: string; className?: string }) {
+  const blocks: ReactNode[] = []
+  let list: string[] = []
+  let para: string[] = []
+  const flushList = () => {
+    if (list.length) blocks.push(<ul key={blocks.length} className="list-disc pl-6 space-y-1.5">{list.map((l, i) => <li key={i}>{inline(l)}</li>)}</ul>)
+    list = []
+  }
+  const flushPara = () => {
+    if (para.length) blocks.push(<p key={blocks.length}>{para.map((l, i) => <Fragment key={i}>{i > 0 && <br />}{inline(l)}</Fragment>)}</p>)
+    para = []
+  }
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    const item = line.match(/^[-*+]\s+(.*)$/)
+    if (item) { flushPara(); list.push(item[1]) }
+    else if (!line) { flushPara(); flushList() }
+    else { flushList(); para.push(line.replace(/^#{1,6}\s+/, '')) }
+  }
+  flushPara()
+  flushList()
+  return <div className={`space-y-3 ${className}`}>{blocks}</div>
+}
+
+/** "★ 8/10" */
+export function RatingChip({ rating, className = '' }: { rating: number | null; className?: string }) {
+  if (rating == null) return null
+  return (
+    <span className={`inline-flex items-center gap-1 font-bold text-amber-700 dark:text-amber-300 ${className}`} aria-label={`Bewertung ${rating} von 10`}>
+      <Star size={16} className="fill-current" /> {rating}/10
+    </span>
+  )
 }

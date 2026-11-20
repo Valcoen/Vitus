@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Upload, FileText, CheckCircle2, AlertTriangle, XCircle, MinusCircle, PencilLine, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Upload, FileText, FolderOpen, CheckCircle2, AlertTriangle, XCircle, MinusCircle, RefreshCw, ImageIcon } from 'lucide-react'
 import type { ImportItem } from '@/lib/recipe/importer'
 
 type Result = {
@@ -17,7 +17,6 @@ const LABEL: Record<ImportItem['action'], string> = {
   update: 'Aktualisieren',
   unchanged: 'Unverändert',
   conflict: 'In der App geändert',
-  skipped_draft: 'Entwurf – übersprungen',
   error: 'Fehler',
 }
 
@@ -25,8 +24,21 @@ function Icon({ a }: { a: ImportItem['action'] }) {
   if (a === 'create' || a === 'update') return <CheckCircle2 className="text-green-600 shrink-0" size={22} />
   if (a === 'conflict') return <AlertTriangle className="text-amber-500 shrink-0" size={22} />
   if (a === 'error') return <XCircle className="text-red-600 shrink-0" size={22} />
-  if (a === 'skipped_draft') return <PencilLine className="text-[hsl(var(--text-muted))] shrink-0" size={22} />
   return <MinusCircle className="text-[hsl(var(--text-muted))] shrink-0" size={22} />
+}
+
+const isMd = (f: File) => /\.(md|markdown)$/i.test(f.name)
+/** Relative path for folder picks ("Rezepte/Bilder/image.jpg"), else the name */
+const pathOf = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+
+/** Image file names a note embeds: ![[x.jpg]], ![](x.jpg), image: x.jpg */
+function imageRefs(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(/!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]|!\[[^\]]*\]\(<?([^)>\s]+)>?/g)) out.push(m[1] ?? m[2])
+  const fm = text.match(/^image:\s*["']?([^"'#\n]+)/m)
+  if (fm) out.push(fm[1].replace(/^\[\[|\]\]$/g, ''))
+  const decode = (r: string) => { try { return decodeURIComponent(r) } catch { return r } }
+  return out.map(r => decode(r.trim()).replace(/^.*[\\/]/, '').toLowerCase())
 }
 
 export default function ImportClient() {
@@ -37,14 +49,21 @@ export default function ImportClient() {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const folderRef = useRef<HTMLInputElement>(null)
 
-  const addFiles = (list: FileList | null) => {
+  const addFiles = async (list: FileList | File[] | null) => {
     if (!list) return
     const incoming = Array.from(list).filter(f => /\.(md|markdown|jpe?g|png|webp|gif)$/i.test(f.name))
+    // From a whole vault folder only keep the images the notes actually embed
+    const md = incoming.filter(isMd)
+    const refs = new Set<string>()
+    for (const f of md) for (const r of imageRefs(await f.text())) refs.add(r)
+    const fromFolder = incoming.some(f => pathOf(f).includes('/'))
+    const keep = incoming.filter(f => isMd(f) || !fromFolder || refs.has(f.name.toLowerCase()))
     setFiles(prev => {
-      const byName = new Map(prev.map(f => [f.name, f]))
-      incoming.forEach(f => byName.set(f.name, f))
-      return [...byName.values()]
+      const byPath = new Map(prev.map(f => [pathOf(f), f]))
+      keep.forEach(f => byPath.set(pathOf(f), f))
+      return [...byPath.values()]
     })
     setResult(null)
     setError(null)
@@ -55,7 +74,11 @@ export default function ImportClient() {
     setError(null)
     const form = new FormData()
     form.append('mode', mode)
-    files.forEach(f => form.append('files', f, f.name))
+    // Preview: only the image names (fast); apply: the images themselves
+    files.forEach(f => {
+      if (isMd(f) || mode === 'apply') form.append('files', f, pathOf(f))
+      else form.append('imageName', pathOf(f))
+    })
     overwrite.forEach(s => form.append('overwrite', s))
     try {
       const res = await fetch('/api/recipes/import', { method: 'POST', body: form })
@@ -72,7 +95,7 @@ export default function ImportClient() {
     }
   }
 
-  const mdCount = files.filter(f => /\.(md|markdown)$/i.test(f.name)).length
+  const mdCount = files.filter(isMd).length
   const imgCount = files.length - mdCount
   const willWrite = result?.mode === 'preview'
     ? result.items.filter(i => i.action === 'create' || i.action === 'update' || (i.action === 'conflict' && i.slug && overwrite.has(i.slug))).length
@@ -84,8 +107,8 @@ export default function ImportClient() {
       <div>
         <h1 className="text-3xl font-extrabold">Rezepte importieren</h1>
         <p className="text-[hsl(var(--text-muted))] mt-1">
-          Obsidian-Rezepte als <code>.md</code>. Nur Dateien mit <code>status: ready</code> werden importiert, Entwürfe werden übersprungen.
-          Bilder, die per <code>image:</code> verlinkt sind, einfach mit auswählen.
+          Obsidian-Rezepte als <code>.md</code>. Ohne <code>status: ready</code> kommen sie als <b>Entwurf</b> rein – in Vitus prüfen und auf „Fertig“ setzen.
+          Bilder (<code>![[bild.jpg]]</code> oder <code>image:</code>) einfach mit auswählen – oder gleich den ganzen Rezepte-Ordner samt Anhängen.
         </p>
       </div>
 
@@ -97,9 +120,17 @@ export default function ImportClient() {
       >
         <Upload className="mx-auto mb-3 text-[hsl(var(--primary))]" size={36} />
         <p className="font-semibold mb-4 hidden md:block">Dateien hierher ziehen oder</p>
-        <button type="button" onClick={() => inputRef.current?.click()} className="btn-primary h-14 px-6 text-lg mx-auto gap-2">
-          <FileText size={22} /> Dateien auswählen
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 justify-center">
+          <button type="button" onClick={() => inputRef.current?.click()} className="btn-primary h-14 px-6 text-lg gap-2">
+            <FileText size={22} /> Dateien auswählen
+          </button>
+          <button type="button" onClick={() => folderRef.current?.click()} className="btn-secondary h-14 px-6 text-lg gap-2">
+            <FolderOpen size={22} /> Ordner auswählen
+          </button>
+        </div>
+        <input ref={folderRef} type="file" multiple className="hidden"
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
         <input ref={inputRef} type="file" multiple accept=".md,.markdown,text/markdown,text/plain,image/jpeg,image/png,image/webp,image/gif" className="hidden"
           onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
         {files.length > 0 && (
@@ -147,8 +178,10 @@ export default function ImportClient() {
                     <p className="text-sm text-[hsl(var(--text-muted))] truncate">{item.file}</p>
                     <p className="text-sm font-semibold">
                       {item.applied && item.overwritten ? 'Überschrieben' : LABEL[item.action]}
+                      {item.draft && (item.action === 'create' || item.action === 'update' || item.action === 'conflict') ? ' · als Entwurf' : ''}
                       {item.reason ? ` · ${item.reason}` : ''}
                     </p>
+                    {item.image && <p className="text-sm text-[hsl(var(--text-muted))] flex items-center gap-1"><ImageIcon size={14} /> {item.image}</p>}
                   </div>
                   {item.applied && item.recipeId && <Link href={`/recipes/${item.recipeId}`} className="text-sm font-semibold text-[hsl(var(--primary))] h-11 flex items-center">Öffnen</Link>}
                 </div>

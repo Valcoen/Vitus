@@ -157,7 +157,9 @@ export default function CookMode({ recipe, servings, setServings, checked, toggl
           </section>
         ) : step && (
           <section className="space-y-6">
-            <p className="text-sm font-bold uppercase tracking-wider text-[hsl(var(--primary))]">Schritt {page}</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-[hsl(var(--primary))]">
+              Schritt {page}{step.section ? <span className="normal-case tracking-normal text-lg"> · {step.section}</span> : null}
+            </p>
             <p className="text-[1.75rem] leading-snug font-semibold whitespace-pre-line">{step.text}</p>
 
             {stepIngredients.length > 0 && (

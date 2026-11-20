@@ -491,6 +491,7 @@ export async function generateMealPlan(
     const { data: recipesData, error: recipesError } = await supabase
       .from('recipes')
       .select('*')
+      .eq('status', 'ready') // drafts are never planned
       .order('title')
 
     if (recipesError) {

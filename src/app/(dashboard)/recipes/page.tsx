@@ -5,8 +5,8 @@ import { can } from '@/lib/permissions'
 import { loadRecipes } from '@/lib/recipe/server'
 import ExploreGrid, { type RecipeCard } from '@/components/recipe/ExploreGrid'
 
-export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ tag?: string; q?: string }> }) {
-  const { tag, q } = await searchParams
+export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ tag?: string; q?: string; drafts?: string }> }) {
+  const { tag, q, drafts } = await searchParams
   const { actor, supabase } = await getActor()
   const recipes = await loadRecipes(supabase)
   const cards: RecipeCard[] = recipes.map(r => ({
@@ -17,6 +17,8 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     kcal: r.nutrition.kcal,
     protein: r.nutrition.protein,
     tags: r.tags,
+    status: r.status,
+    rating: r.rating,
     haystack: [r.title, ...r.tags, ...r.ingredients.map(i => i.name)].join(' ').toLowerCase(),
   }))
 
@@ -40,7 +42,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
           )}
         </div>
       </div>
-      <ExploreGrid recipes={cards} initialTag={tag} initialQuery={q} />
+      <ExploreGrid recipes={cards} initialTag={tag} initialQuery={q} initialDrafts={drafts === '1'} />
     </div>
   )
 }

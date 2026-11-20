@@ -3,8 +3,9 @@
 import { useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowUp, ArrowDown, Plus, Trash2, Camera, ImageIcon, Save, Timer, X, Check, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, ArrowUp, ArrowDown, Plus, Trash2, Camera, ImageIcon, Save, Timer, X, Check, AlertTriangle, Heading, FilePen, CheckCircle2 } from 'lucide-react'
 import { parseIngredientLine, formatAmount } from '@/lib/recipe/ingredients'
+import { plainName } from '@/lib/recipe/nutrition'
 import { detectTimers, formatDuration } from '@/lib/recipe/timers'
 import { MEAL_TYPES } from '@/lib/recipe/validate'
 import { uploadRecipeImage } from '@/lib/client/resizeImage'
@@ -27,8 +28,37 @@ export type EditorInitial = {
   mealType: string
   tags: string[]
   ingredientLines: string[]
-  steps: { text: string; timerMinutes: string }[]
+  steps: { text: string; timerMinutes: string; section?: string | null }[]
   imageUrl: string | null
+  status: 'draft' | 'ready'
+  rating: string
+  sections: { heading: string; body: string }[]
+}
+
+type StepRow = { key: string; kind: 'step' | 'section'; text: string; timerMinutes: string }
+
+/** Steps with a `section` → rows with a heading row wherever the section changes. */
+function toRows(steps: EditorInitial['steps']): StepRow[] {
+  const rows: StepRow[] = []
+  let section: string | null = null
+  for (const s of steps) {
+    if ((s.section ?? null) !== section) {
+      section = s.section ?? null
+      if (section) rows.push({ key: newKey(), kind: 'section', text: section, timerMinutes: '' })
+    }
+    rows.push({ key: newKey(), kind: 'step', text: s.text, timerMinutes: s.timerMinutes })
+  }
+  return rows.length ? rows : [{ key: newKey(), kind: 'step', text: '', timerMinutes: '' }]
+}
+
+function fromRows(rows: StepRow[]) {
+  let section: string | null = null
+  const out: { text: string; timer_minutes: string; section: string | null }[] = []
+  for (const r of rows) {
+    if (r.kind === 'section') section = r.text.trim() || null
+    else out.push({ text: r.text, timer_minutes: r.timerMinutes, section })
+  }
+  return out
 }
 
 const MEAL_TYPE_LABELS: Record<string, string> = { breakfast: 'Frühstück', lunch: 'Mittagessen', dinner: 'Abendessen', snack: 'Snack' }
@@ -75,8 +105,10 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
   const [tags, setTags] = useState(initial.tags.join(', '))
   const [ings, setIngs] = useState(() =>
     (initial.ingredientLines.length ? initial.ingredientLines : ['']).map(text => ({ key: newKey(), text })))
-  const [steps, setSteps] = useState(() =>
-    (initial.steps.length ? initial.steps : [{ text: '', timerMinutes: '' }]).map(s => ({ key: newKey(), ...s })))
+  const [steps, setSteps] = useState<StepRow[]>(() => toRows(initial.steps))
+  const [status, setStatus] = useState<'draft' | 'ready'>(initial.status)
+  const [rating, setRating] = useState(initial.rating)
+  const [sections, setSections] = useState(() => initial.sections.map(x => ({ key: newKey(), ...x })))
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(initial.imageUrl)
   const [removeImage, setRemoveImage] = useState(false)
@@ -114,9 +146,10 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
       const res = await saveRecipeAction(initial.id, {
         title, description, servings, prep_time: prepTime, cook_time: cookTime,
         kcal_per_serving: kcal, protein_per_serving: protein, fridge_days: fridgeDays,
-        freezable, notes, meal_type: mealType || null, tags,
+        freezable, notes, meal_type: mealType || null, tags, status, rating,
         ingredientLines: ings.map(i => i.text),
-        steps: steps.map(s => ({ text: s.text, timer_minutes: s.timerMinutes })),
+        steps: fromRows(steps),
+        sections: sections.map(({ heading, body }) => ({ heading, body })),
       }, initial.updatedAt)
       if (!res.ok) {
         setErrors(res.errors)
@@ -166,6 +199,22 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
         </div>
       )}
 
+      {/* Status */}
+      <section className="card-apple !p-4 space-y-2">
+        <h2 className="text-xl font-bold">Status</h2>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Status">
+          {([['draft', 'Entwurf', FilePen], ['ready', 'Fertig (ready)', CheckCircle2]] as const).map(([v, label, Icon]) => (
+            <button key={v} type="button" role="radio" aria-checked={status === v} onClick={() => setStatus(v)}
+              className={`h-14 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 border-2 ${status === v
+                ? (v === 'ready' ? 'bg-green-600 border-green-600 text-white' : 'bg-amber-400 border-amber-400 text-black')
+                : 'border-[hsl(var(--border))] bg-[hsl(var(--background))]'}`}>
+              <Icon size={20} /> {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm text-[hsl(var(--text-muted))]">Entwürfe stehen nur unter „Entwürfe“ und kommen nicht in den Wochenplan.</p>
+      </section>
+
       {/* Photo */}
       <section className="card-apple !p-4 space-y-3">
         <h2 className="text-xl font-bold">Foto</h2>
@@ -188,7 +237,7 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
       <section className="card-apple !p-4 space-y-4">
         <h2 className="text-xl font-bold">Grundlagen</h2>
         <Field label="Titel *"><input className={input} value={title} onChange={e => setTitle(e.target.value)} required maxLength={200} placeholder="z. B. Chili sin Carne" /></Field>
-        <Field label="Kurzbeschreibung"><textarea className={`${input} min-h-20`} value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={2} /></Field>
+        <Field label="Kurzbeschreibung"><textarea className={`${input} min-h-20`} value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} rows={3} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Portionen *"><input className={input} type="number" inputMode="numeric" min={1} max={50} value={servings} onChange={e => setServings(e.target.value)} required /></Field>
           <Field label="Mahlzeit">
@@ -201,6 +250,7 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
           <Field label="Kochzeit (Min.)"><input className={input} type="number" inputMode="numeric" min={0} value={cookTime} onChange={e => setCookTime(e.target.value)} /></Field>
           <Field label="kcal pro Portion"><input className={input} type="number" inputMode="numeric" min={0} value={kcal} onChange={e => setKcal(e.target.value)} placeholder="auto" /></Field>
           <Field label="Protein pro Portion (g)"><input className={input} type="text" inputMode="decimal" value={protein} onChange={e => setProtein(e.target.value)} placeholder="auto" /></Field>
+          <Field label="Bewertung (0–10)"><input className={input} type="number" inputMode="numeric" min={0} max={10} value={rating} onChange={e => setRating(e.target.value)} placeholder="–" /></Field>
         </div>
         <p className="text-sm text-[hsl(var(--text-muted))]">Leer lassen = aus Zutaten berechnen (nur Zutaten aus der Lebensmittel-Datenbank zählen).</p>
         <Field label="Tags" hint="Mit Komma trennen, z. B. mealprep, high-protein, vegetarisch">
@@ -211,13 +261,13 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
       {/* Ingredients */}
       <section className="card-apple !p-4 space-y-3">
         <h2 className="text-xl font-bold">Zutaten</h2>
-        <p className="text-sm text-[hsl(var(--text-muted))]">Eine Zutat pro Zeile, z. B. „400 g Kidneybohnen“ oder „2 EL Olivenöl“. „### Sauce“ beginnt eine Gruppe. Mehrere Zeilen einfügen geht auch.</p>
+        <p className="text-sm text-[hsl(var(--text-muted))]">Eine Zutat pro Zeile, z. B. „400 g Kidneybohnen“ oder „2 EL Olivenöl“. „### Sauce“ beginnt eine Gruppe, „ *“ am Ende ist eine Fußnote. Mehrere Zeilen einfügen geht auch.</p>
         <datalist id="food-names">{foodNames.map(n => <option key={n} value={n} />)}</datalist>
         <ol className="space-y-2">
           {ings.map((ing, idx) => {
             const isGroup = /^#/.test(ing.text.trim())
-            const parsed = ing.text.trim() && !isGroup ? parseIngredientLine(ing.text) : null
-            const inDb = parsed ? foodSet.has(parsed.name.trim().toLowerCase()) : false
+            const parsed = ing.text.trim() && !isGroup ? parseIngredientLine(ing.text.replace(/\s+\*+$/, '')) : null
+            const inDb = parsed ? foodSet.has(parsed.name.trim().toLowerCase()) || foodSet.has(plainName(parsed.name).toLowerCase()) : false
             return (
               <li key={ing.key} className="rounded-2xl bg-[hsl(var(--input-bg))]/50 p-2">
                 <div className="flex items-center gap-1.5">
@@ -248,19 +298,34 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
         <h2 className="text-xl font-bold">Schritte</h2>
         <ol className="space-y-3">
           {steps.map((s, idx) => {
+            const update = (patch: Partial<StepRow>) => setSteps(p => p.map((x, i) => (i === idx ? { ...x, ...patch } : x)))
+            const controls = (
+              <div className={`flex ${s.kind === 'step' ? 'flex-col' : ''} gap-1.5`}>
+                <button type="button" className={iconBtn} onClick={() => setSteps(p => move(p, idx, idx - 1))} disabled={idx === 0} aria-label="Nach oben"><ArrowUp size={20} /></button>
+                <button type="button" className={iconBtn} onClick={() => setSteps(p => move(p, idx, idx + 1))} disabled={idx === steps.length - 1} aria-label="Nach unten"><ArrowDown size={20} /></button>
+                <button type="button" className={`${iconBtn} text-red-600`} onClick={() => setSteps(p => (p.length > 1 ? p.filter((_, i) => i !== idx) : [{ key: newKey(), kind: 'step', text: '', timerMinutes: '' }]))} aria-label="Entfernen"><Trash2 size={20} /></button>
+              </div>
+            )
+            if (s.kind === 'section') {
+              return (
+                <li key={s.key} className="rounded-2xl border-2 border-dashed border-[hsl(var(--border))] p-2 flex items-center gap-1.5">
+                  <Heading size={20} className="shrink-0 ml-1 text-[hsl(var(--primary))]" />
+                  <input className={`${input} flex-1 min-w-0 font-bold`} value={s.text} onChange={e => update({ text: e.target.value })}
+                    placeholder="Abschnitt, z. B. Soße ansetzen" aria-label="Abschnitt" maxLength={120} />
+                  {controls}
+                </li>
+              )
+            }
+            const number = steps.slice(0, idx + 1).filter(x => x.kind === 'step').length
             const detected = s.text ? detectTimers(s.text) : []
             return (
               <li key={s.key} className="rounded-2xl bg-[hsl(var(--input-bg))]/50 p-2 space-y-2">
                 <div className="flex items-start gap-1.5">
-                  <span className="w-8 h-11 shrink-0 flex items-center justify-center font-extrabold text-[hsl(var(--primary))]">{idx + 1}</span>
+                  <span className="w-8 h-11 shrink-0 flex items-center justify-center font-extrabold text-[hsl(var(--primary))]">{number}</span>
                   <textarea className={`${input} flex-1 min-w-0 min-h-24`} value={s.text} rows={3}
-                    onChange={e => setSteps(p => p.map((x, i) => (i === idx ? { ...x, text: e.target.value } : x)))}
-                    placeholder="z. B. 25 Min. köcheln lassen." aria-label={`Schritt ${idx + 1}`} />
-                  <div className="flex flex-col gap-1.5">
-                    <button type="button" className={iconBtn} onClick={() => setSteps(p => move(p, idx, idx - 1))} disabled={idx === 0} aria-label="Nach oben"><ArrowUp size={20} /></button>
-                    <button type="button" className={iconBtn} onClick={() => setSteps(p => move(p, idx, idx + 1))} disabled={idx === steps.length - 1} aria-label="Nach unten"><ArrowDown size={20} /></button>
-                    <button type="button" className={`${iconBtn} text-red-600`} onClick={() => setSteps(p => (p.length > 1 ? p.filter((_, i) => i !== idx) : [{ key: newKey(), text: '', timerMinutes: '' }]))} aria-label="Schritt entfernen"><Trash2 size={20} /></button>
-                  </div>
+                    onChange={e => update({ text: e.target.value })}
+                    placeholder="z. B. 25 Min. köcheln lassen." aria-label={`Schritt ${number}`} />
+                  {controls}
                 </div>
                 <div className="flex items-center gap-2 pl-9 text-sm">
                   <Timer size={16} className="shrink-0" />
@@ -270,14 +335,17 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
                   <label className="ml-auto flex items-center gap-1.5 font-semibold">
                     Eigener Timer
                     <input className="input-apple bg-[hsl(var(--background))] w-20 py-1.5 px-2 text-right" type="text" inputMode="decimal" placeholder="Min."
-                      value={s.timerMinutes} onChange={e => setSteps(p => p.map((x, i) => (i === idx ? { ...x, timerMinutes: e.target.value } : x)))} />
+                      value={s.timerMinutes} onChange={e => update({ timerMinutes: e.target.value })} />
                   </label>
                 </div>
               </li>
             )
           })}
         </ol>
-        <button type="button" onClick={() => setSteps(p => [...p, { key: newKey(), text: '', timerMinutes: '' }])} className="btn-secondary h-12 gap-2 w-full"><Plus size={20} /> Schritt hinzufügen</button>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setSteps(p => [...p, { key: newKey(), kind: 'step', text: '', timerMinutes: '' }])} className="btn-secondary h-12 gap-2"><Plus size={20} /> Schritt</button>
+          <button type="button" onClick={() => setSteps(p => [...p, { key: newKey(), kind: 'section', text: '', timerMinutes: '' }])} className="btn-secondary h-12 gap-2"><Heading size={20} /> Abschnitt</button>
+        </div>
       </section>
 
       {/* Storage */}
@@ -292,6 +360,24 @@ export default function RecipeEditor({ initial, foodNames }: { initial: EditorIn
           </Field>
         </div>
         <Field label="Hinweise zum Aufwärmen / Lagern"><textarea className={`${input} min-h-24`} value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Abgedeckt aufwärmen, einen Schuss Wasser dazu." /></Field>
+      </section>
+
+      {/* Free sections ("Regeln", "Tipps", …) */}
+      <section className="card-apple !p-4 space-y-3">
+        <h2 className="text-xl font-bold">Weitere Abschnitte</h2>
+        <p className="text-sm text-[hsl(var(--text-muted))]">Z. B. „Regeln“ oder „Tipps“. „- “ am Zeilenanfang wird zur Liste, **fett** wird fett.</p>
+        {sections.map((x, idx) => (
+          <div key={x.key} className="rounded-2xl bg-[hsl(var(--input-bg))]/50 p-2 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <input className={`${input} flex-1 min-w-0 font-bold`} value={x.heading} maxLength={120} placeholder="Überschrift"
+                onChange={e => setSections(p => p.map((y, i) => (i === idx ? { ...y, heading: e.target.value } : y)))} aria-label="Überschrift" />
+              <button type="button" className={`${iconBtn} text-red-600`} onClick={() => setSections(p => p.filter((_, i) => i !== idx))} aria-label="Abschnitt entfernen"><Trash2 size={20} /></button>
+            </div>
+            <textarea className={`${input} w-full min-h-32`} value={x.body} rows={5} maxLength={8000}
+              onChange={e => setSections(p => p.map((y, i) => (i === idx ? { ...y, body: e.target.value } : y)))} aria-label={`Text ${x.heading}`} />
+          </div>
+        ))}
+        <button type="button" onClick={() => setSections(p => [...p, { key: newKey(), heading: '', body: '' }])} className="btn-secondary h-12 gap-2 w-full"><Plus size={20} /> Abschnitt hinzufügen</button>
       </section>
 
       {initial.id && (

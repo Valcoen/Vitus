@@ -51,3 +51,26 @@ export async function deleteRecipeAction(id: string): Promise<{ ok: true } | { o
   revalidatePath('/recipes')
   return { ok: true }
 }
+
+/** Draft ⇄ ready (published) in one tap from the recipe page. */
+export async function setRecipeStatusAction(id: string, status: 'draft' | 'ready'): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { actor, supabase } = await getActor()
+  if (!can(actor, 'recipe.edit')) return { ok: false, error: 'Keine Berechtigung, Rezepte zu ändern.' }
+  if (status !== 'draft' && status !== 'ready') return { ok: false, error: 'Ungültiger Status' }
+  if (status === 'draft') {
+    const { count } = await supabase.from('meals').select('id', { count: 'exact', head: true }).eq('recipe_id', id)
+    if (count && count > 0) return { ok: false, error: 'Das Rezept ist im aktuellen Essensplan eingeplant und bleibt deshalb veröffentlicht.' }
+  }
+  // Publishing alone is not an edit: a recipe still in sync with its Obsidian
+  // note stays in sync, so the next re-import doesn't ask for confirmation.
+  const { data: cur } = await supabase.from('recipes').select('updated_at, last_imported_at').eq('id', id).maybeSingle()
+  const inSync = cur?.last_imported_at && new Date(cur.updated_at).getTime() <= new Date(cur.last_imported_at).getTime() + 2000
+  const patch: Record<string, unknown> = { status }
+  if (inSync) patch.last_imported_at = new Date().toISOString()
+  const { data, error } = await supabase.from('recipes').update(patch).eq('id', id).select('id')
+  if (error) return { ok: false, error: `Speichern fehlgeschlagen: ${error.message}` }
+  if (!data || data.length === 0) return { ok: false, error: 'Rezept nicht gefunden.' }
+  revalidatePath('/recipes')
+  revalidatePath(`/recipes/${id}`)
+  return { ok: true }
+}

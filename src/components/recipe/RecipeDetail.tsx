@@ -1,12 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ChefHat, Clock, Flame, Drumstick, Pencil, Download, Snowflake, Refrigerator, Scale, RotateCcw } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft, ChefHat, Clock, Flame, Drumstick, Pencil, Download, Snowflake, Refrigerator, Scale, RotateCcw, FilePen, CheckCircle2 } from 'lucide-react'
 import type { RecipeView } from '@/lib/recipe/types'
 import { HIGH_PROTEIN_GRAMS } from '@/lib/recipe/types'
 import CookMode from './CookMode'
-import { IngredientChecklist, RecipeImage, ServingsStepper, formatMinutes } from './parts'
+import { IngredientChecklist, RecipeImage, ServingsStepper, formatMinutes, RichText, RatingChip } from './parts'
+import { setRecipeStatusAction } from '@/app/(dashboard)/recipes/actions'
 
 const checkKey = (id: string) => `vitus.check.${id}`
 
@@ -63,6 +65,15 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
     recipe.cookTime ? `Kochen ${formatMinutes(recipe.cookTime)}` : null,
   ].filter(Boolean)
   const n = recipe.nutrition
+  const router = useRouter()
+  const [statusPending, startStatus] = useTransition()
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const setStatus = (status: 'draft' | 'ready') => startStatus(async () => {
+    setStatusError(null)
+    const res = await setRecipeStatusAction(recipe.id, status)
+    if (res.ok) router.refresh()
+    else setStatusError(res.error)
+  })
   const hasStorage = recipe.fridgeDays != null || recipe.freezable != null || recipe.notes
 
   return (
@@ -83,6 +94,22 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
         </div>
       </div>
 
+      {recipe.status === 'draft' && (
+        <div className="rounded-2xl border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/40 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <FilePen size={24} className="text-amber-600 shrink-0" />
+          <p className="flex-1 font-semibold text-amber-900 dark:text-amber-100">
+            Entwurf – nur unter „Entwürfe“ sichtbar und noch nicht im Wochenplan. Portionen und Nährwerte prüfen, dann auf fertig setzen.
+          </p>
+          {canEdit && (
+            <button type="button" disabled={statusPending} onClick={() => setStatus('ready')}
+              className="btn-primary h-12 px-5 gap-2 shrink-0 disabled:opacity-50">
+              <CheckCircle2 size={20} /> Fertig (ready)
+            </button>
+          )}
+        </div>
+      )}
+      {statusError && <p role="alert" className="rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 p-3 font-semibold text-red-800 dark:text-red-200">{statusError}</p>}
+
       {/* 1. Hero */}
       <div className="-mx-4 md:mx-0 aspect-[4/3] md:aspect-[16/9] md:rounded-3xl overflow-hidden bg-[hsl(var(--input-bg))]">
         <RecipeImage url={recipe.imageUrl} title={recipe.title} />
@@ -91,8 +118,9 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
       {/* 2. Title / time / servings */}
       <header className="space-y-3">
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight leading-tight">{recipe.title}</h1>
-        {recipe.description && <p className="text-lg text-[hsl(var(--text-muted))]">{recipe.description}</p>}
+        {recipe.description && <RichText text={recipe.description} className="text-lg text-[hsl(var(--text-muted))]" />}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-base font-semibold text-[hsl(var(--text-muted))]">
+          <RatingChip rating={recipe.rating} />
           {recipe.totalTime ? <span className="flex items-center gap-1.5"><Clock size={18} /> {formatMinutes(recipe.totalTime)}</span> : null}
           {times.length > 0 && <span>{times.join(' · ')}</span>}
           <span>Rezept für {recipe.servings} {recipe.servings === 1 ? 'Portion' : 'Portionen'}</span>
@@ -163,12 +191,18 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
           <p className="text-[hsl(var(--text-muted))]">Keine Schritte hinterlegt.</p>
         ) : (
           <ol className="space-y-5">
-            {recipe.steps.map((s, i) => (
-              <li key={i} className="flex gap-4">
-                <span className="shrink-0 w-9 h-9 rounded-full bg-[hsl(var(--primary))] text-white font-bold flex items-center justify-center">{i + 1}</span>
-                <p className="text-lg leading-relaxed whitespace-pre-line pt-1">{s.text}</p>
-              </li>
-            ))}
+            {recipe.steps.map((s, i) => {
+              const newSection = s.section && s.section !== recipe.steps[i - 1]?.section
+              return (
+                <li key={i} className="space-y-3">
+                  {newSection && <h3 className={`text-xl font-bold ${i > 0 ? 'pt-3 border-t border-[hsl(var(--border))]' : ''}`}>{s.section}</h3>}
+                  <div className="flex gap-4">
+                    <span className="shrink-0 w-9 h-9 rounded-full bg-[hsl(var(--primary))] text-white font-bold flex items-center justify-center">{i + 1}</span>
+                    <p className="text-lg leading-relaxed whitespace-pre-line pt-1">{s.text}</p>
+                  </div>
+                </li>
+              )
+            })}
           </ol>
         )}
       </section>
@@ -189,8 +223,23 @@ export default function RecipeDetail({ recipe, targetKcal, canEdit }: { recipe: 
               </span>
             )}
           </div>
-          {recipe.notes && <p className="text-lg leading-relaxed whitespace-pre-line">{recipe.notes}</p>}
+          {recipe.notes && <RichText text={recipe.notes} className="text-lg leading-relaxed" />}
         </section>
+      )}
+
+      {/* Free sections from Obsidian ("Regeln", "Tipps", …) */}
+      {recipe.extraSections.filter(x => x.body.trim()).map((x, i) => (
+        <section key={i} className="card-apple !p-4 md:!p-6 space-y-3">
+          <h2 className="text-2xl font-bold">{x.heading}</h2>
+          <RichText text={x.body} className="text-lg leading-relaxed" />
+        </section>
+      ))}
+
+      {canEdit && recipe.status === 'ready' && (
+        <button type="button" disabled={statusPending} onClick={() => setStatus('draft')}
+          className="h-11 px-3 text-sm font-semibold text-[hsl(var(--text-muted))] flex items-center gap-2 disabled:opacity-50">
+          <FilePen size={16} /> Zurück auf Entwurf setzen
+        </button>
       )}
 
       {/* 7. Nutrition details (collapsed) */}
