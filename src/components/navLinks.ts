@@ -10,7 +10,7 @@ export const navGroups = [
     links: [
       { href: '/meal-plan', label: 'Ernährungsplan', icon: Map },
       { href: '/shopping', label: 'Einkaufsliste', icon: ShoppingCart },
-      { href: '/recipes', label: 'Rezepte', icon: CookingPot },
+      { href: '/recipes', label: 'Entdecken', icon: CookingPot },
       { href: '/food-items', label: 'Lebensmittel', icon: Apple },
     ],
   },
