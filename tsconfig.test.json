@@ -18,6 +18,8 @@
   "exclude": [
     "src/lib/actor.ts",
     "src/lib/recipe/server.ts",
+    "src/lib/recipe/editorInitial.ts",
+    "src/lib/client/**",
     "src/lib/**/*.tsx"
   ]
 }
