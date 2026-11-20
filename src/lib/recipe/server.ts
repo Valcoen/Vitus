@@ -3,6 +3,7 @@ import { normalizeIngredients } from './ingredients'
 import { computeMacros, indexFoods, perServing, matchFood, type FoodItemLite } from './nutrition'
 import type { RecipeStep } from './markdown'
 import type { RecipeView } from './types'
+import { smallVariant } from '../images'
 
 export const RECIPE_IMAGE_BUCKET = 'recipe-images'
 
@@ -72,6 +73,7 @@ function toView(r: Row, foods: ReturnType<typeof indexFoods>, creatorName: strin
     description: r.description ?? null,
     imagePath: r.image_path ?? null,
     imageUrl: publicImageUrl(r.image_path),
+    imageSmallUrl: publicImageUrl(r.image_path && /^[0-9a-f-]{36}\/\d+\.webp$/.test(r.image_path) ? smallVariant(r.image_path) : r.image_path),
     servings,
     prepTime: prep,
     cookTime: cook,

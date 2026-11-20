@@ -9,6 +9,8 @@ export type RecipeView = {
   title: string
   description: string | null
   imageUrl: string | null
+  /** 640px variant for cards */
+  imageSmallUrl: string | null
   imagePath: string | null
   servings: number
   prepTime: number | null
