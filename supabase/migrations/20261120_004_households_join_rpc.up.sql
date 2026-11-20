@@ -7,6 +7,7 @@
 --  * join_household(code): checks the code and joins in one step.
 --  * recipes: delete policy (there was none, deletes silently did nothing).
 --    Open to logged-in users for now; roles will narrow it later.
+--  * updated_at trigger: imports stamp updated_at = last_imported_at.
 -- ============================================================
 begin;
 
@@ -43,5 +44,20 @@ grant execute on function public.join_household(text) to authenticated;
 drop policy if exists "Recipes delete authenticated" on public.recipes;
 create policy "Recipes delete authenticated" on public.recipes
   for delete to authenticated using (true);
+
+-- Imports set last_imported_at; give updated_at the same value so
+-- "changed in the app since the last import" (updated_at > last_imported_at)
+-- is exact. Any other update still stamps now().
+create or replace function public.set_updated_at() returns trigger
+language plpgsql as $$
+begin
+  if tg_table_name = 'recipes' and new.last_imported_at is distinct from old.last_imported_at
+     and new.last_imported_at is not null then
+    new.updated_at := new.last_imported_at;
+  else
+    new.updated_at := now();
+  end if;
+  return new;
+end $$;
 
 commit;

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test .test-build/"
+    "test": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test .test-build/",
+    "import:recipes": "rm -rf .cli-build && tsc -p tsconfig.cli.json && node .cli-build/scripts/import-recipes.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",

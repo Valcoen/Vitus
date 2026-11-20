@@ -4,4 +4,10 @@ drop policy if exists "Households readable by members" on public.households;
 create policy "Households selectable by anyone" on public.households for select using (true);
 drop function if exists public.join_household(text);
 drop policy if exists "Recipes delete authenticated" on public.recipes;
+create or replace function public.set_updated_at() returns trigger
+language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
 commit;

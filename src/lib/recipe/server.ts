@@ -5,7 +5,8 @@ import type { RecipeStep } from './markdown'
 import type { RecipeView } from './types'
 import { smallVariant } from '../images'
 
-export const RECIPE_IMAGE_BUCKET = 'recipe-images'
+import { RECIPE_IMAGE_BUCKET } from '../imageStore'
+export { RECIPE_IMAGE_BUCKET }
 
 export function publicImageUrl(path: string | null | undefined): string | null {
   if (!path) return null
