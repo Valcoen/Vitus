@@ -1,0 +1,35 @@
+import type { RecipeView } from './types'
+import type { EditorInitial } from '@/components/recipe/RecipeEditor'
+import { ingredientsToLines } from './validate'
+
+const s = (v: number | null | undefined) => (v == null ? '' : String(v))
+
+export function emptyEditor(): EditorInitial {
+  return {
+    id: null, updatedAt: null, title: '', description: '', servings: 4, prepTime: '', cookTime: '',
+    kcal: '', protein: '', fridgeDays: '', freezable: null, notes: '', mealType: '', tags: [],
+    ingredientLines: [], steps: [], imageUrl: null,
+  }
+}
+
+export function editorFromRecipe(r: RecipeView): EditorInitial {
+  return {
+    id: r.id,
+    updatedAt: r.updatedAt,
+    title: r.title,
+    description: r.description ?? '',
+    servings: r.servings,
+    prepTime: s(r.prepTime),
+    cookTime: s(r.cookTime),
+    kcal: s(r.manualKcal),
+    protein: s(r.manualProtein),
+    fridgeDays: s(r.fridgeDays),
+    freezable: r.freezable,
+    notes: r.notes ?? '',
+    mealType: r.mealType ?? '',
+    tags: r.tags,
+    ingredientLines: ingredientsToLines(r.ingredients),
+    steps: r.steps.map(st => ({ text: st.text, timerMinutes: st.timer_seconds ? String(Math.round(st.timer_seconds / 6) / 10) : '' })),
+    imageUrl: r.imageUrl,
+  }
+}

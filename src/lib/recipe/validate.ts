@@ -1,0 +1,143 @@
+/**
+ * Validation + cleanup for recipe input from the editor (and the importer).
+ * All text is rendered by React (escaped), never as HTML; here we only
+ * bound sizes, strip control characters and normalize values.
+ */
+
+import { parseIngredientLine, type Ingredient } from './ingredients'
+import type { RecipeStep } from './markdown'
+
+export type RecipeInput = {
+  title: string
+  description?: string | null
+  servings: number | string
+  prep_time?: number | string | null
+  cook_time?: number | string | null
+  kcal_per_serving?: number | string | null
+  protein_per_serving?: number | string | null
+  fridge_days?: number | string | null
+  freezable?: boolean | null
+  notes?: string | null
+  meal_type?: string | null
+  tags?: string[] | string
+  /** One ingredient per line; "### Gruppe" starts a group */
+  ingredientLines: string[]
+  steps: { text: string; timer_minutes?: number | string | null }[]
+}
+
+export type CleanRecipe = {
+  title: string
+  description: string | null
+  standard_servings: number
+  prep_time: number | null
+  cook_time: number | null
+  kcal_per_serving: number | null
+  protein_per_serving: number | null
+  fridge_days: number | null
+  freezable: boolean | null
+  notes: string | null
+  meal_type: string | null
+  tags: string[]
+  ingredients: Ingredient[]
+  steps: RecipeStep[]
+  /** Legacy column kept in sync so older code and rollbacks still work */
+  instructions: string | null
+}
+
+export const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const
+
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
+export function cleanText(v: unknown, max: number, multiline = false): string {
+  let s = typeof v === 'string' ? v : v == null ? '' : String(v)
+  s = s.replace(CONTROL, '').replace(/\r\n?/g, '\n')
+  if (!multiline) s = s.replace(/\s+/g, ' ')
+  return s.trim().slice(0, max)
+}
+
+function num(v: unknown, field: string, min: number, max: number, errors: string[], integer = true): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'))
+  if (!Number.isFinite(n)) {
+    errors.push(`${field}: keine gültige Zahl`)
+    return null
+  }
+  if (n < min || n > max) {
+    errors.push(`${field}: muss zwischen ${min} und ${max} liegen`)
+    return null
+  }
+  return integer ? Math.round(n) : Math.round(n * 10) / 10
+}
+
+export function normalizeTag(t: string): string {
+  return cleanText(t, 40).toLowerCase().replace(/^#/, '').replace(/\s+/g, '-').replace(/[^a-z0-9äöüß\-]/g, '')
+}
+
+export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRecipe } | { ok: false; errors: string[] } {
+  const errors: string[] = []
+  const title = cleanText(input.title, 200)
+  if (!title) errors.push('Titel fehlt')
+
+  const servings = num(input.servings, 'Portionen', 1, 50, errors) ?? 1
+
+  const rawTags = Array.isArray(input.tags) ? input.tags : String(input.tags ?? '').split(/[,\n]/)
+  const tags = [...new Set(rawTags.map(normalizeTag).filter(Boolean))].slice(0, 20)
+
+  const lines = (input.ingredientLines ?? []).map(l => cleanText(l, 300)).filter(Boolean)
+  if (lines.length > 100) errors.push('Maximal 100 Zutaten')
+  const ingredients: Ingredient[] = []
+  let group: string | null = null
+  for (const line of lines.slice(0, 100)) {
+    const heading = line.match(/^#{1,6}\s*(.+)$/)
+    if (heading) {
+      group = heading[1].trim().slice(0, 80)
+      continue
+    }
+    ingredients.push(parseIngredientLine(line, group))
+  }
+
+  const steps: RecipeStep[] = []
+  for (const s of (input.steps ?? []).slice(0, 60)) {
+    const text = cleanText(s.text, 4000, true)
+    if (!text) continue
+    const minutes = num(s.timer_minutes, 'Timer', 0, 1440, errors, false)
+    steps.push({ text, timer_seconds: minutes ? Math.round(minutes * 60) : null })
+  }
+  if ((input.steps ?? []).length > 60) errors.push('Maximal 60 Schritte')
+
+  const mealType = input.meal_type && (MEAL_TYPES as readonly string[]).includes(input.meal_type) ? input.meal_type : null
+
+  const recipe: CleanRecipe = {
+    title,
+    description: cleanText(input.description, 2000, true) || null,
+    standard_servings: servings,
+    prep_time: num(input.prep_time, 'Vorbereitungszeit', 0, 1440, errors),
+    cook_time: num(input.cook_time, 'Kochzeit', 0, 1440, errors),
+    kcal_per_serving: num(input.kcal_per_serving, 'kcal pro Portion', 0, 5000, errors),
+    protein_per_serving: num(input.protein_per_serving, 'Protein pro Portion', 0, 500, errors, false),
+    fridge_days: num(input.fridge_days, 'Tage im Kühlschrank', 0, 60, errors),
+    freezable: typeof input.freezable === 'boolean' ? input.freezable : null,
+    notes: cleanText(input.notes, 4000, true) || null,
+    meal_type: mealType,
+    tags,
+    ingredients,
+    steps,
+    instructions: steps.length ? steps.map((s, i) => `${i + 1}. ${s.text}`).join('\n\n') : null,
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, recipe }
+}
+
+/** Ingredient → editor line (inverse of the parsing above). */
+export function ingredientsToLines(ingredients: Ingredient[]): string[] {
+  const out: string[] = []
+  let group: string | null = null
+  for (const ing of ingredients) {
+    if ((ing.group ?? null) !== group) {
+      group = ing.group ?? null
+      if (group) out.push(`### ${group}`)
+    }
+    out.push(ing.raw)
+  }
+  return out
+}
