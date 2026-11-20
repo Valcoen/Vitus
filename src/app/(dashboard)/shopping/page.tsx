@@ -1,7 +1,8 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import Link from 'next/link'
-import { toPlannerIngredients } from '@/lib/recipe/nutrition'
+import { toPlannerIngredients, plainName } from '@/lib/recipe/nutrition'
+import { loadFoodIndex, loadTaxonomy } from '@/lib/food/server'
 
 export default async function ShoppingPage() {
   const supabase = await createClient()
@@ -39,9 +40,11 @@ export default async function ShoppingPage() {
     .select('id, name, meal_type, recipe_id, is_shared, recipes(id, title, ingredients, standard_servings)')
     .eq('household_id', userData.household_id)
     .order('day_index', { ascending: true })
-  // New-format recipes → { name: grams }, legacy formats unchanged
+  // New-format recipes → { foodName: grams } (weighed with the food's unit data), legacy formats unchanged
+  const [foodIndex, taxonomy] = await Promise.all([loadFoodIndex(supabase), loadTaxonomy(supabase)])
+  const aisleLabel = Object.fromEntries(taxonomy.foodCategories.map(c => [c.slug, c.label]))
   const meals = (rawMeals || []).map((m: any) => m.recipes
-    ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients) } }
+    ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients, foodIndex) } }
     : m)
 
   // ─── Fetch meal_portions for this user ───
@@ -87,11 +90,11 @@ export default async function ShoppingPage() {
   if (allIngredientNames.size > 0) {
     const { data: foodItems } = await supabase
       .from('food_items')
-      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie')
+      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie, food_category')
       .in('name', Array.from(allIngredientNames))
 
     for (const fi of (foodItems || [])) {
-      const kat = fi.category || fi.kategorie || 'Sonstiges'
+      const kat = (fi.food_category && aisleLabel[fi.food_category]) || fi.category || fi.kategorie || 'Sonstiges'
       foodItemsByName[fi.name] = { ...fi, kategorie: kat }
       foodItemsById[fi.id] = { ...fi, kategorie: kat }
     }
@@ -100,11 +103,11 @@ export default async function ShoppingPage() {
   if (allFoodItemIds.size > 0) {
     const { data: foodItems } = await supabase
       .from('food_items')
-      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie')
+      .select('id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie, food_category')
       .in('id', Array.from(allFoodItemIds))
 
     for (const fi of (foodItems || [])) {
-      const kat = fi.category || fi.kategorie || 'Sonstiges'
+      const kat = (fi.food_category && aisleLabel[fi.food_category]) || fi.category || fi.kategorie || 'Sonstiges'
       foodItemsByName[fi.name] = { ...fi, kategorie: kat }
       foodItemsById[fi.id] = { ...fi, kategorie: kat }
     }
@@ -172,7 +175,7 @@ export default async function ShoppingPage() {
 
       if (!shoppingMap[key]) {
         shoppingMap[key] = {
-          name: ing.food.name,
+          name: plainName(ing.food.name),
           totalGrams: 0,
           kategorie: ing.food.kategorie,
           recipes: new Set(),
@@ -232,10 +235,12 @@ export default async function ShoppingPage() {
     groupedItems[cat].push(item)
   }
 
+  // Aisle order from food_categories (walk through the shop), unknown ones alphabetically at the end
+  const aisleOrder = new Map(taxonomy.foodCategories.map(c => [c.label, c.sort]))
   const sortedCategories = Object.keys(groupedItems).sort((a, b) => {
     if (a === 'Sonstiges') return 1
     if (b === 'Sonstiges') return -1
-    return a.localeCompare(b)
+    return (aisleOrder.get(a) ?? 999) - (aisleOrder.get(b) ?? 999) || a.localeCompare(b)
   })
 
   // ─── Stats ───

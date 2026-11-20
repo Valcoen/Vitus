@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Utensils, User, ChefHat, ExternalLink, UtensilsCrossed } from 'lucide-react'
+import MealSwap, { SwapProvider, type SwapRecipe } from './MealSwap'
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -52,6 +53,8 @@ interface MealPlanCalendarProps {
   days: CalendarDay[]
   mealSlots: string[]
   householdMemberCount: number
+  /** published recipes for "Anderes Rezept" */
+  swapRecipes?: SwapRecipe[]
 }
 
 // ─── Meal Type Color Coding ───────────────────────────────────────────
@@ -121,7 +124,11 @@ function PersonSummary({ persons, compact }: { persons: PersonPortion[]; compact
 
 // ─── Main Component ───────────────────────────────────────────────────
 
-export default function MealPlanCalendar({ days, mealSlots, householdMemberCount }: MealPlanCalendarProps) {
+export default function MealPlanCalendar({ swapRecipes = [], ...props }: MealPlanCalendarProps) {
+  return <SwapProvider value={swapRecipes}><Calendar {...props} /></SwapProvider>
+}
+
+function Calendar({ days, mealSlots, householdMemberCount }: Omit<MealPlanCalendarProps, 'swapRecipes'>) {
   const [expandedMealId, setExpandedMealId] = useState<string | null>(null)
   const [activeMobileDay, setActiveMobileDay] = useState<number>(() => {
     const todayIdx = days.findIndex(d => d.isToday)
@@ -532,6 +539,8 @@ function MealDetailPanel({
           </a>
         )}
       </div>
+
+      <MealSwap mealId={meal.id} slot={meal.mealType} currentRecipeId={meal.recipeId} isBatch={!!meal.batchGroupId} />
 
       {/* Per-person portions */}
       {meal.persons.length > 0 && (

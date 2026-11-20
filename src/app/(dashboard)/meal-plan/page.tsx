@@ -6,6 +6,9 @@ import { scaleRecipeToTarget, computeTotalCookingAmounts } from '@/utils/macroSc
 import type { FoodItem, ScaledResult } from '@/utils/macroScaler'
 import { generateMealPlan } from '@/utils/mealPlanEngine'
 import { toPlannerIngredients } from '@/lib/recipe/nutrition'
+import { loadFoodIndex, loadTaxonomy } from '@/lib/food/server'
+import { loadRecipes } from '@/lib/recipe/server'
+import type { SwapRecipe } from '@/components/MealSwap'
 import { getActor } from '@/lib/actor'
 import { can } from '@/lib/permissions'
 import ConfirmSubmit from '@/components/ConfirmSubmit'
@@ -42,10 +45,19 @@ export default async function MealPlanPage() {
         .select(`*, recipes(title, id, ingredients)`)
         .eq('household_id', userData.household_id)
         .order('day_index', { ascending: true }) : { data: [] }
-    // New-format recipes → { name: grams } for the macro scaler
+    // New-format recipes → { foodName: grams } for the macro scaler
+    const foodIndex = await loadFoodIndex(supabase)
     const meals = (rawMeals || []).map((m: any) => m.recipes
-        ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients) } }
+        ? { ...m, recipes: { ...m.recipes, ingredients: toPlannerIngredients(m.recipes.ingredients, foodIndex) } }
         : m)
+
+    // Published recipes for "Anderes Rezept" in the plan
+    const [allRecipes, taxonomy] = (rawMeals?.length ?? 0) > 0 ? await Promise.all([loadRecipes(supabase), loadTaxonomy(supabase)]) : [[], null]
+    const courseLabel = Object.fromEntries((taxonomy?.courses ?? []).map(c => [c.slug, c.label]))
+    const swapRecipes: SwapRecipe[] = allRecipes.filter(r => r.status === 'ready' && r.mealType !== 'none').map(r => ({
+        id: r.id, title: r.title, mealType: r.mealType, course: r.course ? courseLabel[r.course] ?? null : null,
+        kcal: r.nutrition.kcal, image: r.imageSmallUrl,
+    }))
 
     // Fetch all meal_portions for these meals
     const mealIds = (meals || []).map((m: any) => m.id)
@@ -444,6 +456,7 @@ export default async function MealPlanPage() {
                                 days={calendarDays}
                                 mealSlots={orderedMealSlots}
                                 householdMemberCount={householdMembers.length}
+                                swapRecipes={swapRecipes}
                             />
                         )}
                     </div>

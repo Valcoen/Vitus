@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toPlannerIngredients } from '@/lib/recipe/nutrition'
+import { loadFoodIndex } from '@/lib/food/server'
 import {
   calculateAge,
   adjustForGoal,
@@ -59,6 +60,8 @@ export interface RecipeRow {
   is_favorite: boolean | null
   rating: number | null
   standard_servings: number | null
+  /** entered kcal per serving (imported recipes) */
+  kcal_per_serving?: number | string | null
 }
 
 export interface RecipeIngredient {
@@ -177,6 +180,7 @@ function mergePreferences(members: HouseholdMember[]): {
  * Calculates the total kcal of a recipe based on its ingredients.
  */
 function getRecipeKcal(recipe: RecipeRow, foodItemsMap: Map<string, FoodItemRow>): number {
+  if (recipe.kcal_per_serving != null && Number(recipe.kcal_per_serving) > 0) return Math.round(Number(recipe.kcal_per_serving))
   const normalized = normalizeIngredients(recipe.ingredients, foodItemsMap)
   if (normalized.length === 0) return 0
   let total = 0
@@ -499,10 +503,15 @@ export async function generateMealPlan(
     }
 
     // New-format recipes are converted to { name: grams } so the code below keeps working
-    const allRecipes = ((recipesData || []) as RecipeRow[]).map(r => ({
-      ...r,
-      ingredients: toPlannerIngredients(r.ingredients) as RecipeRow['ingredients'],
-    }))
+    // Linked foods are weighed with their unit data and keyed by the food's name.
+    // Courses that are never planned (Beilage, Soße, Getränk …) have meal_type 'none'.
+    const foodIndex = await loadFoodIndex(supabase)
+    const allRecipes = ((recipesData || []) as RecipeRow[])
+      .filter(r => r.meal_type !== 'none')
+      .map(r => ({
+        ...r,
+        ingredients: toPlannerIngredients(r.ingredients, foodIndex) as RecipeRow['ingredients'],
+      }))
 
     if (allRecipes.length === 0) {
       return { success: false, error: 'Es sind noch keine Rezepte vorhanden. Bitte erstelle zuerst Rezepte unter "Rezepte".' }
