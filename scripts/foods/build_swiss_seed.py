@@ -189,6 +189,10 @@ def diet(cat: str, name: str, path: str):
         return False, False
     if cat in ('milch', 'kaese', 'eier'):
         return True, False
+    if re.match(r'(Honig|Bienenhonig)\b', name):
+        return True, False
+    if re.match(r'(Erdnussbutter|Erdnussmus|Mandelmus|Tahin|Sesampaste)', name):
+        return True, True
     if cat in ('gerichte', 'suesses', 'sonstiges'):
         return None, None
     if plant_based and re.search(r'vegetarisch', name, re.I) and not re.search(r'vegan', name, re.I):
@@ -263,8 +267,10 @@ VITUS_TWINS = {
     'Wassermelone': 'Wassermelone, roh', 'Weintrauben': 'Traube, weiß, roh', 'Zucchini': 'Zucchini, roh',
     'Zwiebel (Weiß)': 'Zwiebel, roh', 'Gurke': 'Gurke, roh',
 }
-# duplicates inside the Vitus list: hidden, still resolvable for old recipes
-VITUS_DUPLICATES = ['Blaubeeren', 'Hähnchenbrust, roh', 'Paprika (rot)', 'Reis, gekocht', 'Walnüsse']
+# duplicates inside the Vitus list: hidden, still resolvable for old recipes;
+# they get the same data as the entry they duplicate
+VITUS_DUPLICATES = {'Blaubeeren': 'Blaubeere', 'Hähnchenbrust, roh': 'Hähnchenbrust', 'Paprika (rot)': 'Paprika',
+                    'Reis, gekocht': 'Reis (gekocht)', 'Walnüsse': 'Walnuss'}
 # Vitus foods without a twin: category + diet only
 VITUS_EXTRA = {
     'Baguette': ('brot', True, True), 'Brötchen': ('brot', True, True), 'Vollkornbrot': ('brot', True, True),
@@ -437,7 +443,8 @@ def main(xlsx: str, out: str):
     insert(manual, 'manual')
 
     lines.append('\n-- Existing Vitus foods: keep name + macros, take the rest from the Swiss twin; the twin is hidden')
-    for vname, sname in VITUS_TWINS.items():
+    pairs = list(VITUS_TWINS.items()) + [(dup, VITUS_TWINS[main]) for dup, main in VITUS_DUPLICATES.items()]
+    for vname, sname in pairs:
         s = by_name[sname]
         aliases = [sname, *[a for a in s['aliases'] if a != vname]]
         lines.append(
@@ -451,6 +458,8 @@ def main(xlsx: str, out: str):
         lines.append(f"update public.food_items set food_category = {q(cat)}, is_vegetarian = {q(veg)}, is_vegan = {q(vegan)} "
                      f"where source = 'vitus' and name = {q(vname)};")
     lines.append(f"update public.food_items set is_hidden = true where source = 'vitus' and name in ({', '.join(q(n) for n in VITUS_DUPLICATES)});")
+    # the Swiss "Erdnussbutter" lives under 'Verschiedenes'
+    lines.append("update public.food_items set food_category = 'nuesse' where name in ('Erdnussbutter') and food_category = 'sonstiges';")
     lines.append("update public.food_items set food_category = 'sonstiges' where food_category is null;")
     lines += ['', 'commit;', '']
     Path(out).write_text('\n'.join(lines), encoding='utf8')
