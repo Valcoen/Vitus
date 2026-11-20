@@ -68,7 +68,9 @@ export default function LoginPage() {
           sessionStorage.setItem('vitus.session', '1')
         } catch { /* storage blocked: stay logged in */ }
 
-        router.push('/')
+        // Back to the invite link after logging in (only our own /join/… paths)
+        const next = new URLSearchParams(window.location.search).get('next')
+        router.push(next && /^\/join\/[\w-]{1,64}$/.test(next) ? next : '/')
         router.refresh()
       } else {
         const { data, error } = await supabase.auth.signUp({

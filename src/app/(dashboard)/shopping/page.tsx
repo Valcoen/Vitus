@@ -26,8 +26,8 @@ export default async function ShoppingPage() {
         </div>
         <div className="card-apple text-center py-12">
           <span className="text-4xl mb-3 block">🏠</span>
-          <p className="text-[hsl(var(--text-muted))] font-semibold">Bitte trete zuerst einem Haushalt bei, um eine Einkaufsliste zu sehen.</p>
-          <Link href="/household" className="btn-primary mt-4 inline-flex px-6">Zum Haushalt →</Link>
+          <p className="text-[hsl(var(--text-muted))] font-semibold">Erstelle zuerst einen gemeinsamen Plan oder tritt einem bei, um eine Einkaufsliste zu sehen.</p>
+          <Link href="/settings#plan" className="btn-primary mt-4 inline-flex px-6">Zum gemeinsamen Plan →</Link>
         </div>
       </div>
     )

@@ -363,7 +363,7 @@ export default async function MealPlanPage() {
 
             {!household ? (
                 <div className="card-apple">
-                    <p className="text-[hsl(var(--text-muted))] font-medium">Bitte trete zuerst einem Haushalt bei (unter Haushalt &amp; WG).</p>
+                    <p className="text-[hsl(var(--text-muted))] font-medium">Erstelle zuerst einen gemeinsamen Plan oder tritt einem bei – unter <a href="/settings#plan" className="underline font-semibold">Einstellungen → Gemeinsamer Plan</a>.</p>
                 </div>
             ) : (
                 <>

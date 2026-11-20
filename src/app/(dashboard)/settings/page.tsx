@@ -1,13 +1,14 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import SharedPlanSettings from '@/components/SharedPlanSettings'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: userData } = await supabase.from('users').select('id, theme').eq('auth_id', user.id).single()
+  const { data: userData } = await supabase.from('users').select('id, theme, household_id').eq('auth_id', user.id).single()
 
   async function updateTheme(formData: FormData) {
     'use server'
@@ -41,8 +42,10 @@ export default async function SettingsPage() {
     <div className="space-y-8 max-w-4xl">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">⚙️ Einstellungen</h1>
-        <p className="text-[hsl(var(--text-muted))] mt-1 text-lg font-medium">Passe das Erscheinungsbild der App an.</p>
+        <p className="text-[hsl(var(--text-muted))] mt-1 text-lg font-medium">Gemeinsamer Plan, Erscheinungsbild und Konto.</p>
       </div>
+
+      {userData && <SharedPlanSettings supabase={supabase} me={{ id: userData.id, household_id: userData.household_id ?? null }} />}
 
       <div className="card-apple">
          <h2 className="text-xl font-bold mb-4">Erscheinungsbild</h2>

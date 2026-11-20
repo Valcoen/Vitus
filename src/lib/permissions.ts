@@ -19,6 +19,8 @@ export type Action =
   | 'recipe.export'
   | 'recipe.image.upload'
   | 'plan.edit'
+  /** Invite / remove people, rename the shared plan (the DB also checks: planner only) */
+  | 'plan.members'
   | 'shopping.edit'
   | 'food_item.edit'
   | 'tracking.write_own'
@@ -38,7 +40,7 @@ export const PLANNED_PERMISSIONS: Record<Role, ReadonlySet<Action> | 'all'> = {
   dev: 'all',
   admin: new Set<Action>([
     'recipe.create', 'recipe.edit', 'recipe.delete', 'recipe.import', 'recipe.export',
-    'recipe.image.upload', 'plan.edit', 'shopping.edit', 'food_item.edit', 'tracking.write_own',
+    'recipe.image.upload', 'plan.edit', 'plan.members', 'shopping.edit', 'food_item.edit', 'tracking.write_own',
   ]),
   // view everything, track own food; ticking the shared shopping list stays allowed
   user: new Set<Action>(['tracking.write_own', 'shopping.edit']),

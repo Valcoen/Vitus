@@ -15,7 +15,7 @@ export default async function DashboardPage() {
     .single()
 
   // Fetch household explicitly to avoid deep join RLS issues temporarily
-  let householdName = "Kein Haushalt"
+  let householdName = "Noch keiner"
   if (userData?.household_id) {
      const { data: h } = await supabase.from('households').select('name').eq('id', userData.household_id).single()
      if (h?.name) householdName = h.name
@@ -157,10 +157,10 @@ export default async function DashboardPage() {
           <p className="text-3xl font-bold">{userData?.goal || "Nicht gesetzt"}</p>
         </div>
 
-        <div className="card-apple flex flex-col justify-center">
-          <p className="text-sm font-semibold text-[hsl(var(--text-muted))] mb-2 uppercase tracking-wide">Haushalt</p>
+        <Link href="/settings#plan" className="card-apple flex flex-col justify-center active:scale-[0.99] transition-transform">
+          <p className="text-sm font-semibold text-[hsl(var(--text-muted))] mb-2 uppercase tracking-wide">Gemeinsamer Plan</p>
           <p className="text-3xl font-bold">{householdName}</p>
-        </div>
+        </Link>
 
         <div className="card-apple flex flex-col justify-center">
           <p className="text-sm font-semibold text-[hsl(var(--text-muted))] mb-2 uppercase tracking-wide">Aktuelles Gewicht</p>

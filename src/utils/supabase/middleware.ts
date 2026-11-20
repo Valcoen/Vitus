@@ -36,6 +36,7 @@ export async function updateSession(request: NextRequest) {
                       request.nextUrl.pathname === '/' || 
                       request.nextUrl.pathname.startsWith('/profile') || 
                       request.nextUrl.pathname.startsWith('/household') || 
+                      request.nextUrl.pathname.startsWith('/join') || 
                       request.nextUrl.pathname.startsWith('/meal-plan') || 
                       request.nextUrl.pathname.startsWith('/tracking') || 
                       request.nextUrl.pathname.startsWith('/recipes') ||
@@ -47,12 +48,17 @@ export async function updateSession(request: NextRequest) {
   if (!user && isProtected) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.search = ''
+    // Invite links survive the login: /login?next=/join/abc
+    if (request.nextUrl.pathname.startsWith('/join/')) url.searchParams.set('next', request.nextUrl.pathname)
     return NextResponse.redirect(url)
   }
 
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    const next = request.nextUrl.searchParams.get('next')
+    url.pathname = next && /^\/join\/[\w-]{1,64}$/.test(next) ? next : '/'
+    url.search = ''
     return NextResponse.redirect(url)
   }
 

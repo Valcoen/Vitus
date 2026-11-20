@@ -1,4 +1,4 @@
-import { LayoutDashboard, User, Map, Activity, Users, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
+import { LayoutDashboard, User, Map, Activity, ShoppingCart, Calendar, Settings, ChartPie, Apple, CookingPot } from 'lucide-react'
 
 export const navGroups = [
   {
@@ -26,7 +26,6 @@ export const navGroups = [
     title: 'Konto',
     links: [
       { href: '/profile', label: 'Mein Profil', icon: User },
-      { href: '/household', label: 'Haushalt & WG', icon: Users },
       { href: '/settings', label: 'Einstellungen', icon: Settings },
     ],
   },
