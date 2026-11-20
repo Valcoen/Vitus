@@ -5,6 +5,7 @@ import LogoutButton from '@/components/LogoutButton'
 import MobileSidebar from '@/components/MobileSidebar'
 import DesktopNav from '@/components/DesktopNav'
 import { Suspense } from 'react'
+import SessionGuard from '@/components/SessionGuard'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -15,6 +16,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className={`flex h-screen w-full bg-[hsl(var(--background))] text-[hsl(var(--text))] overflow-hidden ${userData?.theme === 'Dunkel' ? 'dark' : ''}`}>
+      <SessionGuard />
       <Suspense fallback={null}>
         <Toaster />
       </Suspense>

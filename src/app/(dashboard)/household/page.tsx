@@ -34,13 +34,12 @@ export default async function HouseholdPage() {
 
   async function joinHousehold(formData: FormData) {
     'use server'
-    const code = formData.get('code') as string
+    const code = String(formData.get('code') ?? '').trim().slice(0, 32)
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: h } = await supabase.from('households').select('id').eq('invite_code', code).single()
-    if (h) {
-        const { data: u } = await supabase.from('users').select('id').eq('auth_id', user!.id).single()
-        await supabase.from('users').update({ household_id: h.id }).eq('id', u!.id)
+    // Households are no longer readable by non-members; the DB function
+    // checks the code and joins in one step (migration 004).
+    const { data: householdId } = code ? await supabase.rpc('join_household', { p_code: code }) : { data: null }
+    if (householdId) {
         redirect(`/household?success=${encodeURIComponent('Du bist dem Haushalt erfolgreich beigetreten!')}`)
     } else {
         redirect(`/household?error=${encodeURIComponent('Ungültiger Invite-Code')}`)

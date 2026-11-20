@@ -453,6 +453,7 @@ export async function generateMealPlan(
   householdId: string,
   members: HouseholdMember[],
   options: MealPlanOptions,
+  createdBy: string | null = null,
 ): Promise<{ success: true; mealsCreated: number; shoppingItems: number } | { success: false; error: string }> {
   try {
     // ── Step 1: Calculate per-member TDEE + macros ──
@@ -589,6 +590,7 @@ export async function generateMealPlan(
       is_shared: meal.isShared,
       batch_group_id: meal.batchGroupId,
       week_start: weekStart,
+      created_by: createdBy,
       calories: getRecipeKcal(
         allRecipes.find(r => r.id === meal.recipeId)!,
         foodItemsMap

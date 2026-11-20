@@ -25,7 +25,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [surname, setSurname] = useState('')
-  const [rememberMe, setRememberMe] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
   const [messageType, setMessageType] = useState<'error' | 'success' | null>(null)
   const [loading, setLoading] = useState(false)
@@ -60,15 +60,13 @@ export default function LoginPage() {
         })
         if (error) throw error
 
-        // If "Remember Me" is NOT checked, register a listener to sign out on browser close
-        if (!rememberMe) {
-          const handleUnload = () => {
-            // Use navigator.sendBeacon for reliable signout on close
-            const url = '/auth/signout-beacon'
-            navigator.sendBeacon(url)
-          }
-          window.addEventListener('beforeunload', handleUnload)
-        }
+        // "Angemeldet bleiben" off → sign out when the browser session ends
+        // (checked by SessionGuard). Reloading the page keeps you logged in.
+        try {
+          if (rememberMe) localStorage.removeItem('vitus.ephemeral')
+          else localStorage.setItem('vitus.ephemeral', '1')
+          sessionStorage.setItem('vitus.session', '1')
+        } catch { /* storage blocked: stay logged in */ }
 
         router.push('/')
         router.refresh()

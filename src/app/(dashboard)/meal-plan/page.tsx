@@ -6,6 +6,9 @@ import { scaleRecipeToTarget, computeTotalCookingAmounts } from '@/utils/macroSc
 import type { FoodItem, ScaledResult } from '@/utils/macroScaler'
 import { generateMealPlan } from '@/utils/mealPlanEngine'
 import { toPlannerIngredients } from '@/lib/recipe/nutrition'
+import { getActor } from '@/lib/actor'
+import { can } from '@/lib/permissions'
+import ConfirmSubmit from '@/components/ConfirmSubmit'
 import type { HouseholdMember, MealPlanOptions } from '@/utils/mealPlanEngine'
 import MealPlanCalendar from '@/components/MealPlanCalendar'
 import type { CalendarDay, CalendarMeal, PersonPortion, CookingTotal } from '@/components/MealPlanCalendar'
@@ -65,6 +68,8 @@ export default async function MealPlanPage() {
         const mealSlots = formData.getAll('meal_slots') as string[]
         const activeMealSlots = mealSlots.length > 0 ? mealSlots : ['Frühstück', 'Mittagessen', 'Abendessen']
 
+        const { actor } = await getActor()
+        if (!can(actor, 'plan.edit')) redirect(`/meal-plan?error=${encodeURIComponent('Keine Berechtigung, den Plan zu ändern.')}`)
         const supabase = await createClient()
         const { data: { user } } = await supabase.auth.getUser()
         const { data: u } = await supabase.from('users').select('id, auth_id, household_id').eq('auth_id', user!.id).single()
@@ -98,7 +103,7 @@ export default async function MealPlanPage() {
                 batchLunchDays: batchDays,
             }
 
-            const result = await generateMealPlan(supabase, u.household_id, members, options)
+            const result = await generateMealPlan(supabase, u.household_id, members, options, u.id)
 
             if (result.success) {
                 revalidatePath('/meal-plan')
@@ -111,6 +116,8 @@ export default async function MealPlanPage() {
 
     async function clearMeals() {
         'use server'
+        const { actor } = await getActor()
+        if (!can(actor, 'plan.edit')) redirect(`/meal-plan?error=${encodeURIComponent('Keine Berechtigung, den Plan zu ändern.')}`)
         const supabase = await createClient()
         const { data: { user } } = await supabase.auth.getUser()
         const { data: u } = await supabase.from('users').select('household_id').eq('auth_id', user!.id).single()
@@ -375,7 +382,7 @@ export default async function MealPlanPage() {
                                         <option value="6">6 Tage</option>
                                         <option value="7">7 Tage</option>
                                     </select>
-                                    <button type="submit" className="btn-primary whitespace-nowrap shadow-md hover:scale-[1.02] transition-transform sm:w-auto px-8">Wochenplan generieren</button>
+                                    <ConfirmSubmit message="Neuen Wochenplan erstellen? Der aktuelle Plan und die Einkaufsliste werden für alle im Haushalt ersetzt." className="btn-primary whitespace-nowrap shadow-md hover:scale-[1.02] transition-transform sm:w-auto px-8 min-h-12">Wochenplan generieren</ConfirmSubmit>
                                 </div>
                                 <div className="pt-2">
                                     <label className="block text-sm font-semibold mb-2 pl-1 text-[hsl(var(--text-muted))]">Mahlzeiten-Slots für diesen Plan</label>
@@ -403,9 +410,9 @@ export default async function MealPlanPage() {
                                     </button>
                                 </form>
                                 <form action={clearMeals}>
-                                    <button type="submit" className="text-sm font-semibold text-red-500 border border-red-500/20 hover:bg-red-500/10 px-4 py-2 rounded-xl transition-colors shadow-sm">
+                                    <ConfirmSubmit message="Plan und Einkaufsliste für den ganzen Haushalt löschen?" className="text-sm font-semibold text-red-500 border border-red-500/20 hover:bg-red-500/10 px-4 py-2 rounded-xl transition-colors shadow-sm min-h-11">
                                         🗑️ Aktuellen Plan löschen
-                                    </button>
+                                    </ConfirmSubmit>
                                 </form>
                             </div>
                             
