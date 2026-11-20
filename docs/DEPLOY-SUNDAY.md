@@ -1,7 +1,6 @@
 # Vitus: deploy checklist & phone test
 
-Branch: `feature/kitchen-ready`. Database: migrations **001, 001b and 002 are already live**; **003 and 004 are not**.
-004 must go live *together with* the new code (the old code joins households in a way 004 closes).
+Live since 2026-11-20: migrations 001–005 are applied. New migrations go live *together with* their code (each file says so).
 
 All commands run on the VPS as root.
 
@@ -107,5 +106,18 @@ Use your phone on mobile data or Wi-Fi, logged in as the WG planner. Tick each b
 **Plan & shopping**
 - [ ] *Ernährungsplan* → *Wochenplan generieren* asks for confirmation first. (Cancel if you don't want a new plan yet.)
 - [ ] *Einkaufsliste* still shows grouped items for the current plan.
+
+**Obsidian import (round 2)**
+- [ ] *Import* → *Ordner auswählen* → your Obsidian recipes folder (with the attachments). Preview shows each note as *Neu · als Entwurf* and the image it found (e.g. `image.jpg`).
+- [ ] After importing, *Entdecken* → *Entwürfe (n)* chip shows them with a yellow "Entwurf" badge; the normal list doesn't.
+- [ ] Open "Ragu Bolognese": photo, ★ 8/10, the intro (Topf / Köchelzeit / Nudeln) in bold, ingredient groups Fleisch / Soffritto / Sauce / Zum Servieren, steps under headings like "Pancetta auslassen (optional)", a "Regeln" card at the bottom.
+- [ ] Servings: the note has none, so it says 4 – fix it in *Bearbeiten*, then tap *Fertig (ready)* in the yellow banner → it moves to the normal list.
+- [ ] *Kochen starten* → step "1 Std. köcheln" offers a 1:00:00 timer; the step header shows its section name.
+- [ ] Export it (.md) → `status: ready`, `rating: 8`, `### Pancetta auslassen (optional)` in the file.
+
+**Gemeinsamer Plan** (menu → *Einstellungen*; there is no "Haushalt" tab anymore)
+- [ ] Your plan shows its people with *Entfernen* / *Planer* buttons, an invite link with *Link teilen*.
+- [ ] Send the link to a flatmate: they open it, log in (or register, then log in) and land on "Einladung zum gemeinsamen Plan" → *Beitreten*.
+- [ ] *Entfernen* removes someone (they can only come back with a link). *Neuen Link erzeugen* makes the old link stop working.
 
 Anything off? Note the step number and what you saw.
