@@ -70,6 +70,8 @@ function toView(r: Row, foods: ReturnType<typeof indexFoods>, creatorName: strin
   return {
     id: r.id,
     slug: r.slug ?? null,
+    status: r.status === 'draft' ? 'draft' : 'ready',
+    rating: typeof r.rating === 'number' ? r.rating : null,
     title: r.title,
     description: r.description ?? null,
     imagePath: r.image_path ?? null,

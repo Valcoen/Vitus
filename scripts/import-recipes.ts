@@ -8,7 +8,7 @@
  * (or the environment), and NEXT_PUBLIC_SUPABASE_URL from .env.local.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
-import { join, extname, basename } from 'node:path'
+import { join, extname, relative, sep } from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 import { planImport, applyImport, summarize, type ImportFile, type ImportImage, type ImportItem } from '../src/lib/recipe/importer'
 
@@ -35,7 +35,7 @@ function arg(name: string): string | undefined {
 
 const ICON: Record<ImportItem['action'], string> = {
   create: '+ neu        ', update: '~ update     ', unchanged: '= unverändert', conflict: '! KONFLIKT   ',
-  skipped_draft: '- Entwurf    ', error: 'x FEHLER     ',
+  error: 'x FEHLER     ',
 }
 
 async function main() {
@@ -62,17 +62,18 @@ async function main() {
   }
 
   const paths = walk(folder)
-  const files: ImportFile[] = paths.filter(p => /\.(md|markdown)$/i.test(p)).map(p => ({ name: basename(p), text: readFileSync(p, 'utf8') }))
-  const images: ImportImage[] = paths.filter(p => /\.(jpe?g|png|webp|gif)$/i.test(extname(p))).map(p => ({ name: basename(p), data: readFileSync(p) }))
+  const rel = (p: string) => relative(folder, p).split(sep).join('/')
+  const files: ImportFile[] = paths.filter(p => /\.(md|markdown)$/i.test(p)).map(p => ({ name: rel(p), text: readFileSync(p, 'utf8') }))
+  const images: ImportImage[] = paths.filter(p => /\.(jpe?g|png|webp|gif)$/i.test(extname(p))).map(p => ({ name: rel(p), data: readFileSync(p) }))
 
-  const plan = await planImport(supabase, files)
+  const plan = await planImport(supabase, files, images)
   const conflicts = plan.filter(i => i.action === 'conflict').map(i => i.slug!).filter(Boolean)
   const overwrite = new Set(process.argv.includes('--overwrite-all') ? conflicts : (arg('--overwrite') ?? '').split(',').filter(Boolean))
   const items = apply ? await applyImport(supabase, user.id, files, images, overwrite) : plan
 
   for (const i of items) {
     const tag = i.applied && i.overwritten ? '! überschrieben' : ICON[i.action]
-    console.log(`${tag}  ${i.file}${i.reason ? `  (${i.reason})` : ''}`)
+    console.log(`${tag}  ${i.file}${i.draft ? '  [Entwurf]' : ''}${i.reason ? `  (${i.reason})` : ''}`)
     for (const w of i.warnings) console.log(`                 ↳ ${w}`)
   }
   const s = summarize(items)

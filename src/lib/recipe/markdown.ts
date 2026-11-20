@@ -27,13 +27,21 @@
 
 import { parseIngredientLine, ingredientToMarkdownLine, type Ingredient } from './ingredients'
 import { splitFrontmatter, parseFrontmatter, stringifyFrontmatter, type Frontmatter, type FrontmatterValue } from './frontmatter'
+import { detectTimers } from './timers'
 
-export type RecipeStep = { text: string; timer_seconds?: number | null }
+export type RecipeStep = {
+  text: string
+  timer_seconds?: number | null
+  /** Sub-heading the step belongs to ("Pancetta auslassen"), from "### 2. Pancetta auslassen" */
+  section?: string | null
+}
 
 export type RecipeDoc = {
   slug: string
   title: string
   status: string | null
+  /** 0–10, like the Obsidian notes */
+  rating: number | null
   description: string | null
   image: string | null
   servings: number
@@ -57,13 +65,13 @@ export type RecipeDoc = {
 export type ParseResult = {
   doc: RecipeDoc
   warnings: string[]
-  /** True only for `status: ready`. Everything else is skipped on import. */
+  /** True only for `status: ready`. Everything else is imported as a draft. */
   ready: boolean
 }
 
 const KNOWN_KEYS = new Set([
   'slug', 'title', 'status', 'image', 'servings', 'prep_time', 'cook_time',
-  'kcal', 'protein', 'fridge_days', 'freezable', 'tags', 'created', 'description',
+  'kcal', 'protein', 'fridge_days', 'freezable', 'tags', 'created', 'description', 'rating',
 ])
 
 const SECTION_ALIASES: Record<string, 'ingredients' | 'steps' | 'notes'> = {
@@ -111,19 +119,23 @@ function parseIngredientsSection(body: string, warnings: string[]): Ingredient[]
   for (const line of body.split('\n')) {
     const t = line.trim()
     if (!t) continue
-    const heading = t.match(/^#{3,6}\s+(.*)$/)
+    const heading = t.match(/^#{3,6}\s+(.*)$/) ?? t.match(/^\*\*([^*]+?):?\*\*:?$/)
     if (heading) {
       group = heading[1].trim()
       continue
     }
-    const ing = parseIngredientLine(t, group)
+    // Obsidian footnote marks at the end ("500 g Tagliatelle \*") are kept separately
+    const mark = t.match(/\s*((?:\\\*|\*)+)$/)
+    const clean = mark && !/^[-*+]\s*$/.test(t.slice(0, mark.index)) ? t.slice(0, mark.index) : t
+    const ing = parseIngredientLine(clean, group)
+    if (clean !== t) ing.mark = '*'.repeat(mark![1].replace(/\\/g, '').length)
     if (ing.qty === null) warnings.push(`Ingredient kept as text (no amount recognized): "${ing.raw}"`)
     out.push(ing)
   }
   return out
 }
 
-function parseStepsSection(body: string): RecipeStep[] {
+function parseStepBlock(body: string, section: string | null): RecipeStep[] {
   const lines = body.split('\n')
   const itemRe = /^\s*(?:\d+[.)]|[-*+])\s+(.*)$/
   const hasList = lines.some(l => itemRe.test(l))
@@ -138,8 +150,48 @@ function parseStepsSection(body: string): RecipeStep[] {
   } else {
     for (const para of body.split(/\n\s*\n/)) if (para.trim()) steps.push(para.trim())
   }
-  return steps.map(text => ({ text }))
+  return steps.map(text => (section ? { text, section } : { text }))
 }
+
+/** "### 2. Pancetta auslassen" starts a step section; the number is dropped. */
+function parseStepsSection(body: string): RecipeStep[] {
+  const out: RecipeStep[] = []
+  let section: string | null = null
+  let block = ''
+  const flush = () => {
+    out.push(...parseStepBlock(block, section))
+    block = ''
+  }
+  for (const line of body.split('\n')) {
+    const h = line.match(/^#{3,6}\s+(.*?)\s*#*\s*$/)
+    if (h) {
+      flush()
+      section = h[1].replace(/^\d+[.)]\s*/, '').trim() || null
+    } else {
+      block += line + '\n'
+    }
+  }
+  flush()
+  return out
+}
+
+/** Lines that are only a horizontal rule ("---", "***", "___"). */
+const HR = /^\s*([-*_])(\s*\1){2,}\s*$/
+/** First embedded image: ![[file.jpg]], ![[file.jpg|300]] or ![alt](file.jpg) */
+const IMAGE_EMBED = /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]|!\[[^\]]*\]\(<?([^)>\s]+)>?(?:\s+"[^"]*")?\)/
+
+/** Durations written in the intro, e.g. "**Köchelzeit:** 2–2,5 Std." → minutes (lower bound). */
+function introMinutes(intro: string, keys: RegExp): number | null {
+  for (const line of intro.split('\n')) {
+    const m = line.replace(/\*\*/g, '').match(/^\s*([^:]{2,40}):\s*(.+)$/)
+    if (!m || !keys.test(m[1])) continue
+    const t = detectTimers(m[2])[0]
+    if (t) return Math.round(t.seconds / 60)
+  }
+  return null
+}
+
+export const DEFAULT_SERVINGS = 4
 
 export function parseRecipeMarkdown(text: string, filename?: string): ParseResult {
   const warnings: string[] = []
@@ -153,11 +205,26 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
     warnings.push(...parsed.warnings)
   }
 
+  // Embedded image (Obsidian) and horizontal rules are layout, not content
+  let embeddedImage: string | null = null
+  const bodyLines: string[] = []
+  for (const line of body.split('\n')) {
+    if (HR.test(line)) continue
+    const img = line.match(IMAGE_EMBED)
+    if (img && !embeddedImage) {
+      embeddedImage = (img[1] ?? img[2]).trim()
+      const rest = line.replace(IMAGE_EMBED, '').trim()
+      if (rest) bodyLines.push(rest)
+      continue
+    }
+    bodyLines.push(line)
+  }
+
   // Sections
   let intro = ''
   const sections: { heading: string; body: string }[] = []
   let current: { heading: string; body: string } | null = null
-  for (const line of body.split('\n')) {
+  for (const line of bodyLines) {
     const h = line.match(/^##\s+(.*?)\s*#*\s*$/)
     if (h && !line.startsWith('###')) {
       current = { heading: h[1], body: '' }
@@ -183,15 +250,15 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
 
   // Title: front matter → first "# H1" in intro → filename
   const h1 = intro.match(/^#\s+(.+)$/m)
-  const fileBase = filename?.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
+  const fileBase = filename?.replace(/^.*[\\/]/, '').replace(/\.(md|markdown)$/i, '').replace(/_+/g, ' ').replace(/\s+/g, ' ').trim()
   const title = (typeof fm.title === 'string' && fm.title.trim()) || h1?.[1].trim() || fileBase || 'Unbenanntes Rezept'
   if (!fm.title) warnings.push(`No title in front matter, using "${title}"`)
   const description = intro.replace(/^#\s+.+$/m, '').trim() || (typeof fm.description === 'string' ? fm.description : null)
 
   const slugSource = (typeof fm.slug === 'string' && fm.slug) || fileBase || title
   const servingsRaw = toNumber(fm.servings, 'servings', warnings)
-  let servings = servingsRaw && servingsRaw > 0 ? Math.round(servingsRaw) : 1
-  if (!servingsRaw) warnings.push('No servings given, assuming 1')
+  let servings = servingsRaw && servingsRaw > 0 ? Math.round(servingsRaw) : DEFAULT_SERVINGS
+  if (!servingsRaw) warnings.push(`Keine Portionen angegeben – ${DEFAULT_SERVINGS} angenommen, bitte prüfen`)
   if (servings > 50) {
     warnings.push(`servings ${servings} looks wrong, capped at 50`)
     servings = 50
@@ -201,6 +268,12 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
   if (steps.length === 0) warnings.push('No steps found (expects a "## Steps" section)')
 
   const status = fm.status == null ? null : String(fm.status).trim().toLowerCase()
+  let rating = toNumber(fm.rating, 'rating', warnings)
+  if (rating !== null && (rating < 0 || rating > 10)) {
+    warnings.push(`rating ${rating} is outside 0–10 and was ignored`)
+    rating = null
+  }
+  const imageFm = typeof fm.image === 'string' ? fm.image.replace(/^!?\[\[|\]\]$/g, '').trim() || null : null
   const extra: Frontmatter = {}
   for (const [k, v] of Object.entries(fm)) if (!KNOWN_KEYS.has(k)) extra[k] = v
 
@@ -208,11 +281,12 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
     slug: slugify(slugSource),
     title,
     status,
+    rating: rating === null ? null : Math.round(rating),
     description,
-    image: typeof fm.image === 'string' ? fm.image : null,
+    image: imageFm ?? embeddedImage,
     servings,
-    prep_time: toNumber(fm.prep_time, 'prep_time', warnings),
-    cook_time: toNumber(fm.cook_time, 'cook_time', warnings),
+    prep_time: toNumber(fm.prep_time, 'prep_time', warnings) ?? introMinutes(intro, /vorbereit|prep/i),
+    cook_time: toNumber(fm.cook_time, 'cook_time', warnings) ?? introMinutes(intro, /(koch|köchel|gar|back|schmor)zeit|cook/i),
     kcal: toNumber(fm.kcal, 'kcal', warnings),
     protein: toNumber(fm.protein, 'protein', warnings),
     fridge_days: toNumber(fm.fridge_days, 'fridge_days', warnings),
@@ -228,14 +302,15 @@ export function parseRecipeMarkdown(text: string, filename?: string): ParseResul
   return { doc, warnings, ready: status === 'ready' }
 }
 
-/** Serializes a recipe back to the Obsidian format. Always writes `status: ready`. */
+/** Serializes a recipe back to the Obsidian format (status as stored, `draft` if none). */
 export function recipeToMarkdown(doc: RecipeDoc): string {
   const { categories, ...otherExtra } = doc.extra_frontmatter
   const entries: [string, FrontmatterValue | undefined][] = [
     ['categories', categories ?? ['[[Recipes]]']],
     ['title', doc.title],
     ['slug', doc.slug],
-    ['status', 'ready'],
+    ['status', doc.status === 'ready' ? 'ready' : 'draft'],
+    ['rating', doc.rating ?? undefined],
     ['image', doc.image ?? undefined],
     ['servings', doc.servings],
     ['prep_time', doc.prep_time ?? undefined],
@@ -259,10 +334,23 @@ export function recipeToMarkdown(doc: RecipeDoc): string {
       group = ing.group ?? null
       if (group) ingLines.push(`### ${group}`)
     }
-    ingLines.push(`- ${ingredientToMarkdownLine(ing)}`)
+    ingLines.push(`- ${ingredientToMarkdownLine(ing)}${ing.mark ? ' ' + ing.mark.replace(/\*/g, '\\*') : ''}`)
   }
   parts.push(['## Ingredients', ...ingLines].join('\n'))
-  parts.push(['## Steps', ...doc.steps.map((s, i) => `${i + 1}. ${s.text.replace(/\n/g, '\n   ')}`)].join('\n'))
+  const stepLines: string[] = ['## Steps']
+  let section: string | null = null
+  let n = 0
+  for (const s of doc.steps) {
+    if ((s.section ?? null) !== section) {
+      section = s.section ?? null
+      if (section) {
+        stepLines.push(`### ${section}`)
+        n = 0
+      }
+    }
+    stepLines.push(`${++n}. ${s.text.replace(/\n/g, '\n   ')}`)
+  }
+  parts.push(stepLines.join('\n'))
   if (doc.notes) parts.push(`## Notes\n${doc.notes}`)
   for (const s of doc.extra_sections) parts.push(`## ${s.heading}\n${s.body}`)
   return parts.join('\n') + '\n'

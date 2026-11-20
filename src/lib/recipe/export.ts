@@ -14,7 +14,8 @@ export function viewToDoc(r: RecipeView): RecipeDoc {
   return {
     slug: r.slug ?? slugify(r.title),
     title: r.title,
-    status: 'ready',
+    status: r.status,
+    rating: r.rating,
     description: r.description,
     image: r.imageUrl,
     servings: r.servings,

@@ -20,9 +20,15 @@ export type RecipeInput = {
   notes?: string | null
   meal_type?: string | null
   tags?: string[] | string
-  /** One ingredient per line; "### Gruppe" starts a group */
+  /** 'ready' = published; anything else is a draft */
+  status?: string | null
+  /** 0–10 */
+  rating?: number | string | null
+  /** One ingredient per line; "### Gruppe" starts a group, a trailing " *" is a footnote mark */
   ingredientLines: string[]
-  steps: { text: string; timer_minutes?: number | string | null }[]
+  steps: { text: string; timer_minutes?: number | string | null; section?: string | null }[]
+  /** Free sections like "Regeln" */
+  sections?: { heading: string; body: string }[]
 }
 
 export type CleanRecipe = {
@@ -38,8 +44,11 @@ export type CleanRecipe = {
   notes: string | null
   meal_type: string | null
   tags: string[]
+  status: 'draft' | 'ready'
+  rating: number | null
   ingredients: Ingredient[]
   steps: RecipeStep[]
+  extra_sections: { heading: string; body: string }[]
   /** Legacy column kept in sync so older code and rollbacks still work */
   instructions: string | null
 }
@@ -94,7 +103,10 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
       group = heading[1].trim().slice(0, 80)
       continue
     }
-    ingredients.push(parseIngredientLine(line, group))
+    const mark = line.match(/\s+(\*+)$/)
+    const ing = parseIngredientLine(mark ? line.slice(0, mark.index) : line, group)
+    if (mark) ing.mark = mark[1]
+    ingredients.push(ing)
   }
 
   const steps: RecipeStep[] = []
@@ -102,7 +114,8 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
     const text = cleanText(s.text, 4000, true)
     if (!text) continue
     const minutes = num(s.timer_minutes, 'Timer', 0, 1440, errors, false)
-    steps.push({ text, timer_seconds: minutes ? Math.round(minutes * 60) : null })
+    const section = cleanText(s.section, 120) || null
+    steps.push({ text, timer_seconds: minutes ? Math.round(minutes * 60) : null, ...(section ? { section } : {}) })
   }
   if ((input.steps ?? []).length > 60) errors.push('Maximal 60 Schritte')
 
@@ -121,8 +134,14 @@ export function validateRecipe(input: RecipeInput): { ok: true; recipe: CleanRec
     notes: cleanText(input.notes, 4000, true) || null,
     meal_type: mealType,
     tags,
+    status: input.status === 'ready' ? 'ready' : 'draft',
+    rating: num(input.rating, 'Bewertung', 0, 10, errors),
     ingredients,
     steps,
+    extra_sections: (input.sections ?? []).slice(0, 20)
+      .map(x => ({ heading: cleanText(x?.heading, 120), body: cleanText(x?.body, 8000, true) }))
+      .filter(x => x.heading || x.body)
+      .map(x => ({ heading: x.heading || 'Notizen', body: x.body })),
     instructions: steps.length ? steps.map((s, i) => `${i + 1}. ${s.text}`).join('\n\n') : null,
   }
   return errors.length ? { ok: false, errors } : { ok: true, recipe }
@@ -137,7 +156,7 @@ export function ingredientsToLines(ingredients: Ingredient[]): string[] {
       group = ing.group ?? null
       if (group) out.push(`### ${group}`)
     }
-    out.push(ing.raw)
+    out.push(ing.mark ? `${ing.raw} ${ing.mark}` : ing.raw)
   }
   return out
 }

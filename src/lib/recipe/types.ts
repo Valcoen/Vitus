@@ -7,6 +7,10 @@ export type RecipeView = {
   id: string
   slug: string | null
   title: string
+  /** 'ready' = published, 'draft' = only visible under "Entwürfe", not planned */
+  status: 'draft' | 'ready'
+  /** 0–10 */
+  rating: number | null
   description: string | null
   imageUrl: string | null
   /** 640px variant for cards */

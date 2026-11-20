@@ -104,7 +104,7 @@ test('tolerates odd values with warnings instead of failing', () => {
   const md = CHILI.replace('kcal: 520', 'kcal: 520 kcal').replace('servings: 4', 'servings: viele')
   const { doc, warnings } = parseRecipeMarkdown(md)
   assert.equal(doc.kcal, 520)
-  assert.equal(doc.servings, 1)
+  assert.equal(doc.servings, 4) // default, with a warning
   assert.ok(warnings.length >= 2)
 })
 

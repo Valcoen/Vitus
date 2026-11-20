@@ -21,7 +21,6 @@ export type ImportAction =
   | 'update'        // existing, unchanged in app since last import
   | 'unchanged'     // identical file was imported before
   | 'conflict'      // changed in the app since (or never imported) → needs confirmation
-  | 'skipped_draft' // status is not "ready"
   | 'error'
 
 export type ImportItem = {
@@ -32,6 +31,12 @@ export type ImportItem = {
   reason?: string
   warnings: string[]
   recipeId?: string
+  /** Lands (or stays) as a draft: the file has no `status: ready` */
+  draft?: boolean
+  /** Uploaded image that will be used (preview with image names only) */
+  image?: string | null
+  /** Status the recipe has in Vitus today (existing recipes only) */
+  currentStatus?: string | null
   /** set by applyImport */
   applied?: boolean
   overwritten?: boolean
@@ -42,9 +47,20 @@ export const MAX_FILES = 300
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex')
 
-export function docToInput(doc: RecipeDoc): RecipeInput {
+/**
+ * `status: ready` in the file publishes the recipe. Without it the recipe is
+ * a draft — but a re-import never takes back a recipe already published in Vitus.
+ */
+export function importStatus(doc: RecipeDoc, currentStatus?: string | null): 'ready' | 'draft' {
+  return doc.status === 'ready' || currentStatus === 'ready' ? 'ready' : 'draft'
+}
+
+export function docToInput(doc: RecipeDoc, currentStatus?: string | null): RecipeInput {
   return {
     title: doc.title,
+    status: importStatus(doc, currentStatus),
+    rating: doc.rating,
+    sections: doc.extra_sections,
     description: doc.description,
     servings: doc.servings,
     prep_time: doc.prep_time,
@@ -56,7 +72,7 @@ export function docToInput(doc: RecipeDoc): RecipeInput {
     notes: doc.notes,
     tags: doc.tags,
     ingredientLines: ingredientsToLines(doc.ingredients),
-    steps: doc.steps.map(s => ({ text: s.text, timer_minutes: s.timer_seconds ? s.timer_seconds / 60 : null })),
+    steps: doc.steps.map(s => ({ text: s.text, timer_minutes: s.timer_seconds ? s.timer_seconds / 60 : null, section: s.section ?? null })),
   }
 }
 
@@ -67,11 +83,8 @@ function parseAll(files: ImportFile[]): Parsed[] {
   return files.slice(0, MAX_FILES).map(f => {
     const base: ImportItem = { file: f.name, slug: null, title: null, action: 'error', warnings: [] }
     if (Buffer.byteLength(f.text, 'utf8') > MAX_MD_BYTES) return { item: { ...base, reason: 'Datei größer als 1 MB' } }
-    const { doc, warnings, ready } = parseRecipeMarkdown(f.text, f.name)
+    const { doc, warnings } = parseRecipeMarkdown(f.text, f.name)
     const item: ImportItem = { ...base, slug: doc.slug, title: doc.title, warnings }
-    if (!ready) {
-      return { item: { ...item, action: 'skipped_draft', reason: doc.status ? `status: ${doc.status}` : 'kein status: ready' } }
-    }
     const dup = seen.get(doc.slug)
     if (dup) return { item: { ...item, reason: `Gleicher Slug wie „${dup}“` } }
     seen.set(doc.slug, f.name)
@@ -82,19 +95,31 @@ function parseAll(files: ImportFile[]): Parsed[] {
 }
 
 /** Dry run: classifies every file without writing anything. */
-export async function planImport(supabase: SupabaseClient, files: ImportFile[]): Promise<ImportItem[]> {
+export async function planImport(supabase: SupabaseClient, files: ImportFile[], images?: ImportImage[]): Promise<ImportItem[]> {
+  const items = await classify(supabase, files)
+  if (!images) return items
+  const docs = new Map(parseAll(files).filter(p => p.doc).map(p => [p.item.file, p.doc!]))
+  return items.map(item => {
+    const ref = docs.get(item.file)?.image
+    if (!ref || /^https?:\/\//.test(ref) || item.action === 'error' || item.action === 'unchanged') return item
+    const found = findImage(ref, item.file, images, files.length)
+    return found.image ? { ...item, image: found.image.name } : { ...item, warnings: [...item.warnings, found.reason] }
+  })
+}
+
+async function classify(supabase: SupabaseClient, files: ImportFile[]): Promise<ImportItem[]> {
   const parsed = parseAll(files)
   const slugs = parsed.filter(p => p.doc).map(p => p.doc!.slug)
   const { data: existing } = slugs.length
-    ? await supabase.from('recipes').select('id, slug, updated_at, last_imported_at, import_hash').in('slug', slugs)
+    ? await supabase.from('recipes').select('id, slug, status, updated_at, last_imported_at, import_hash').in('slug', slugs)
     : { data: [] as any[] }
   const bySlug = new Map((existing ?? []).map(r => [r.slug as string, r]))
 
   return parsed.map(({ item, doc, hash }) => {
     if (!doc) return item
     const ex = bySlug.get(doc.slug)
-    if (!ex) return { ...item, action: 'create' as const }
-    const withId = { ...item, recipeId: ex.id as string }
+    if (!ex) return { ...item, action: 'create' as const, draft: importStatus(doc) === 'draft' }
+    const withId = { ...item, recipeId: ex.id as string, currentStatus: ex.status ?? null, draft: importStatus(doc, ex.status) === 'draft' }
     if (ex.import_hash && ex.import_hash === hash) return { ...withId, action: 'unchanged' as const, reason: 'Identisch mit dem letzten Import' }
     if (!ex.last_imported_at) {
       return { ...withId, action: 'conflict' as const, reason: 'Existiert schon in Vitus (in der App angelegt, nie importiert)' }
@@ -120,9 +145,9 @@ export async function applyImport(
   images: ImportImage[],
   overwrite: Set<string>,
 ): Promise<ImportItem[]> {
-  const plan = await planImport(supabase, files)
+  const plan = await classify(supabase, files)
   const parsed = new Map(parseAll(files).filter(p => p.doc).map(p => [p.item.file, p]))
-  const imagesByName = new Map(images.map(i => [i.name.replace(/^.*[\\/]/, '').toLowerCase(), i]))
+  const mdCount = files.length
   const results: ImportItem[] = []
 
   for (const item of plan) {
@@ -133,7 +158,7 @@ export async function applyImport(
       continue
     }
     const doc = p.doc!
-    const v = validateRecipe(docToInput(doc))
+    const v = validateRecipe(docToInput(doc, item.currentStatus))
     if (!v.ok) {
       results.push({ ...item, action: 'error', reason: v.errors.join('; ') })
       continue
@@ -144,8 +169,6 @@ export async function applyImport(
       last_imported_at: stamp,
       import_hash: p.hash,
       extra_frontmatter: doc.extra_frontmatter,
-      extra_sections: doc.extra_sections,
-      status: 'ready',
     }
     const res = item.action === 'create'
       ? await insertRecipe(supabase, v.recipe, createdBy, {
@@ -160,12 +183,12 @@ export async function applyImport(
     }
     const warnings = [...item.warnings]
     if (doc.image && !/^https?:\/\//.test(doc.image)) {
-      const img = imagesByName.get(doc.image.replace(/^.*[\\/]/, '').toLowerCase())
-      if (img) {
-        const stored = await storeRecipeImage(supabase, res.id, img.data)
+      const found = findImage(doc.image, item.file, images, mdCount)
+      if (found.image) {
+        const stored = await storeRecipeImage(supabase, res.id, found.image.data)
         if (!stored.ok) warnings.push(`Bild „${doc.image}“: ${stored.error}`)
       } else {
-        warnings.push(`Bild „${doc.image}“ nicht mitgeliefert – vorhandenes Foto bleibt`)
+        warnings.push(found.reason)
       }
     }
     results.push({
@@ -180,6 +203,40 @@ export async function applyImport(
   return results
 }
 
+const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : '')
+const baseOf = (p: string) => p.replace(/^.*[\\/]/, '').toLowerCase()
+
+/**
+ * Finds the uploaded image a note refers to. Obsidian attachments often share
+ * names ("image.jpg" in many notes), so with a folder upload the copy closest
+ * to the note wins: same folder, then a sub-folder of it, then the only file
+ * with that name. A single note uploaded with a single image always pairs up.
+ */
+export function findImage(
+  ref: string,
+  mdPath: string,
+  images: ImportImage[],
+  mdCount: number,
+): { image: ImportImage; reason?: undefined } | { image: null; reason: string } {
+  const name = baseOf(ref)
+  const candidates = images.filter(i => baseOf(i.name) === name)
+  if (candidates.length === 1) return { image: candidates[0] }
+  if (candidates.length > 1) {
+    const dir = dirOf(mdPath.replace(/\\/g, '/'))
+    const path = (i: ImportImage) => i.name.replace(/\\/g, '/')
+    const same = candidates.filter(i => dirOf(path(i)) === dir)
+    if (same.length === 1) return { image: same[0] }
+    const below = candidates.filter(i => path(i).startsWith(dir))
+      .sort((a, b) => path(a).split('/').length - path(b).split('/').length)
+    if (below.length && (below.length === 1 || path(below[0]).split('/').length < path(below[1]).split('/').length)) {
+      return { image: below[0] }
+    }
+    return { image: null, reason: `Bild „${ref}“ gibt es mehrfach – bitte das Bild einzeln mit diesem Rezept importieren oder im Editor hochladen` }
+  }
+  if (mdCount === 1 && images.length === 1) return { image: images[0] }
+  return { image: null, reason: `Bild „${ref}“ nicht mitgeliefert – vorhandenes Foto bleibt` }
+}
+
 export function summarize(items: ImportItem[]) {
   const count = (a: ImportAction) => items.filter(i => i.action === a).length
   return {
@@ -187,7 +244,7 @@ export function summarize(items: ImportItem[]) {
     updated: count('update'),
     unchanged: count('unchanged'),
     conflicts: count('conflict'),
-    drafts: count('skipped_draft'),
+    drafts: items.filter(i => i.draft && (i.action === 'create' || i.action === 'update')).length,
     errors: count('error'),
     warnings: items.reduce((n, i) => n + i.warnings.length, 0),
   }

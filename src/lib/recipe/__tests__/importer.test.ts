@@ -71,8 +71,8 @@ test('classifies new, draft and duplicate files', async () => {
     { name: 'Idee.md', text: md('Idee', 'draft') },
     { name: 'reis-bowl.md', text: md('Reis Bowl 2') },
   ])
-  assert.deepEqual(plan.map(p => p.action), ['create', 'skipped_draft', 'error'])
-  assert.match(plan[1].reason!, /draft/)
+  assert.deepEqual(plan.map(p => p.action), ['create', 'create', 'error'])
+  assert.deepEqual(plan.map(p => p.draft), [false, true, undefined])
   assert.ok(plan[0].warnings.some(w => w.includes('Salz')))
 })
 
@@ -131,4 +131,31 @@ test('missing image file is a warning, not an error', async () => {
   assert.equal(res[0].action, 'create')
   assert.ok(res[0].warnings.some(w => w.includes('bild.jpg')))
   assert.deepEqual(summarize(res), { created: 1, updated: 0, unchanged: 0, conflicts: 0, drafts: 0, errors: 0, warnings: 2 })
+})
+
+test('notes without status: ready land as drafts; a re-import never unpublishes', async () => {
+  const db = fakeDb()
+  const res = await applyImport(db.client, 'u', [{ name: 'Idee.md', text: md('Idee', 'draft') }], [], new Set())
+  assert.equal(res[0].draft, true)
+  assert.equal(db.tables.recipes[0].status, 'draft')
+  assert.deepEqual(summarize(res).drafts, 1)
+
+  // published in the app, then the (still status-less) note is edited and re-imported
+  db.tables.recipes[0].status = 'ready'
+  db.tables.recipes[0].updated_at = db.tables.recipes[0].last_imported_at
+  const again = await applyImport(db.client, 'u', [{ name: 'Idee.md', text: md('Idee', 'draft', '2. Mehr.') }], [], new Set())
+  assert.equal(again[0].action, 'update')
+  assert.equal(db.tables.recipes[0].status, 'ready')
+  assert.equal(db.tables.recipes[0].steps.length, 2)
+})
+
+test('rating, step sections and extra sections are stored', async () => {
+  const db = fakeDb()
+  const text = md('Ragu').replace('kcal: 400', 'kcal: 400\nrating: 8').replace('## Steps\n', '## Steps\n### 1. Anbraten\n') + '\n## Regeln\nKein Knoblauch.\n'
+  await applyImport(db.client, 'u', [{ name: 'Ragu.md', text }], [], new Set())
+  const row = db.tables.recipes[0]
+  assert.equal(row.rating, 8)
+  assert.equal(row.status, 'ready')
+  assert.equal(row.steps[0].section, 'Anbraten')
+  assert.deepEqual(row.extra_sections, [{ heading: 'Regeln', body: 'Kein Knoblauch.' }])
 })

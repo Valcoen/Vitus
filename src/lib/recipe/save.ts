@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CleanRecipe } from './validate'
 import type { Ingredient } from './ingredients'
 import { slugify } from './markdown'
+import { baseName, plainName } from './nutrition'
 
 /** Returns `base`, or `base-2`, `base-3`… if taken by another recipe. */
 export async function uniqueSlug(supabase: SupabaseClient, title: string, excludeId?: string): Promise<string> {
@@ -19,6 +20,8 @@ export async function linkFoodItems(supabase: SupabaseClient, ingredients: Ingre
   const byName = new Map((data ?? []).map(f => [f.name.trim().toLowerCase(), f]))
   return ingredients.map(ing => {
     const f = byName.get(ing.name.trim().toLowerCase())
+      ?? byName.get(baseName(ing.name).toLowerCase())
+      ?? byName.get(plainName(ing.name).toLowerCase())
     return f ? { ...ing, food_item_id: f.id, category: f.category || f.kategorie || null } : { ...ing, food_item_id: null }
   })
 }
@@ -37,8 +40,11 @@ function toRow(r: CleanRecipe, ingredients: Ingredient[]) {
     notes: r.notes,
     meal_type: r.meal_type,
     tags: r.tags,
+    status: r.status,
+    rating: r.rating,
     ingredients,
     steps: r.steps,
+    extra_sections: r.extra_sections,
     instructions: r.instructions,
   }
 }
@@ -57,7 +63,7 @@ export async function insertRecipe(
   const ingredients = await linkFoodItems(supabase, r.ingredients)
   const { data, error } = await supabase
     .from('recipes')
-    .insert({ ...toRow(r, ingredients), status: 'ready', created_by: createdBy, ...extra, slug })
+    .insert({ ...toRow(r, ingredients), created_by: createdBy, ...extra, slug })
     .select('id, slug')
     .single()
   if (error || !data) return { ok: false, errors: [`Speichern fehlgeschlagen: ${error?.message ?? 'unbekannt'}`] }

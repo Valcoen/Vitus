@@ -36,8 +36,28 @@ export function plannerAmount(ing: Ingredient): number | null {
   if (ing.unit === null && isEgg(ing.name)) return ing.qty
   const g = toGrams(ing)
   if (g !== null) return g
+  const hint = weightHint(ing.name)
+  if (hint !== null) return hint
   if (ing.unit && SPOON_GRAMS[ing.unit]) return ing.qty * SPOON_GRAMS[ing.unit]
   return null
+}
+
+/** "große Zwiebel (ca. 200 g)" → 200: a weight written in brackets, for the whole line. */
+export function weightHint(name: string): number | null {
+  const m = name.match(/\(\s*(?:ca\.?|circa|etwa|~|≈)?\s*(\d+(?:[.,]\d+)?)\s*(g|kg|ml|l)\b/i)
+  if (!m) return null
+  const n = parseFloat(m[1].replace(',', '.'))
+  return /^(kg|l)$/i.test(m[2]) ? n * 1000 : n
+}
+
+/** Name for food matching: "große Zwiebel (ca. 200 g)" → "große Zwiebel", "Hackfleisch: 600 g Rind…" → "Hackfleisch". */
+export function baseName(name: string): string {
+  return name.replace(/\([^)]*\)/g, '').split(/[:,]/)[0].trim()
+}
+
+/** baseName without size words: "große Zwiebel (ca. 200 g)" → "Zwiebel". */
+export function plainName(name: string): string {
+  return baseName(name).replace(/^(große?[nrs]?|kleine?[nrs]?|mittelgroße?[nrs]?|frische?[nrs]?)\s+/i, '') || name
 }
 
 /** Grams for nutrition maths (eggs ≈ 55 g each). */
@@ -57,7 +77,8 @@ export function toPlannerIngredients(stored: unknown): unknown {
   for (const ing of normalizeIngredients(stored)) {
     const amount = plannerAmount(ing)
     if (amount === null) continue
-    map[ing.name] = (map[ing.name] ?? 0) + amount
+    const key = plainName(ing.name)
+    map[key] = (map[key] ?? 0) + amount
   }
   return map
 }
@@ -69,7 +90,10 @@ export function matchFood(
   byLowerName: Record<string, FoodItemLite>,
 ): FoodItemLite | null {
   if (ing.food_item_id && byId[ing.food_item_id]) return byId[ing.food_item_id]
-  return byLowerName[ing.name.trim().toLowerCase()] ?? null
+  const exact = byLowerName[ing.name.trim().toLowerCase()]
+  if (exact) return exact
+  const base = baseName(ing.name).toLowerCase()
+  return byLowerName[base] ?? byLowerName[plainName(ing.name).toLowerCase()] ?? null
 }
 
 export function indexFoods(foods: FoodItemLite[]) {

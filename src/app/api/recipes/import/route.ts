@@ -37,23 +37,34 @@ export async function POST(request: Request) {
   const rejected: { file: string; reason: string }[] = []
   for (const entry of form.getAll('files')) {
     if (!(entry instanceof File)) continue
-    const name = entry.name.replace(/^.*[\\/]/, '').slice(0, 200)
+    // Folder uploads send "Rezepte/Bilder/image.jpg": keep the relative path to find the right image
+    const name = safePath(entry.name)
     if (/\.(md|markdown)$/i.test(name)) {
       if (entry.size > MAX_MD_BYTES) rejected.push({ file: name, reason: 'größer als 1 MB' })
       else mdFiles.push({ name, text: await entry.text() })
     } else if (/\.(jpe?g|png|webp|gif)$/i.test(name)) {
       if (entry.size > MAX_UPLOAD_BYTES) rejected.push({ file: name, reason: 'Bild größer als 15 MB' })
-      else if (mode === 'apply') images.push({ name, data: Buffer.from(await entry.arrayBuffer()) })
+      else images.push({ name, data: Buffer.from(await entry.arrayBuffer()) })
     } else {
       rejected.push({ file: name, reason: 'kein .md oder Bild' })
     }
+  }
+  // Preview: the browser only sends the names of the images
+  for (const n of form.getAll('imageName')) {
+    const name = safePath(String(n))
+    if (/\.(jpe?g|png|webp|gif)$/i.test(name)) images.push({ name, data: Buffer.alloc(0) })
   }
   if (mdFiles.length === 0) return NextResponse.json({ error: 'Keine .md-Dateien gefunden.', rejected }, { status: 400 })
   if (mdFiles.length > MAX_FILES) return NextResponse.json({ error: `Maximal ${MAX_FILES} Dateien auf einmal.` }, { status: 400 })
 
   const items = mode === 'apply'
     ? await applyImport(supabase, actor.userId, mdFiles, images, overwrite)
-    : await planImport(supabase, mdFiles)
+    : await planImport(supabase, mdFiles, images)
   if (mode === 'apply') revalidatePath('/recipes')
   return NextResponse.json({ mode, items, summary: summarize(items), rejected })
+}
+
+/** "a\\b/../c.md" → "a/b/c.md": relative, no "..", bounded length. */
+function safePath(name: string): string {
+  return name.replace(/\\/g, '/').split('/').filter(p => p && p !== '.' && p !== '..').join('/').slice(-300)
 }

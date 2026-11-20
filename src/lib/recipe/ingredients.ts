@@ -23,6 +23,8 @@ export type Ingredient = {
   food_item_id?: string | null
   /** Shopping-list category, when known. */
   category?: string | null
+  /** Footnote mark from the Obsidian note ("*"), kept for display and export. */
+  mark?: string | null
 }
 
 /** Known units → canonical spelling. Matching is case-insensitive. */
@@ -141,6 +143,7 @@ export function normalizeIngredients(
           group: typeof o.group === 'string' ? o.group : null,
           food_item_id: typeof o.food_item_id === 'string' ? o.food_item_id : null,
           category: typeof o.category === 'string' ? o.category : null,
+          mark: typeof o.mark === 'string' ? o.mark : null,
         }]
       }
       if (typeof o.food_item_id === 'string') {
