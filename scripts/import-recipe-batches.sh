@@ -7,6 +7,7 @@
 # otherwise they are reported as conflicts and left alone.
 #
 #   scripts/import-recipe-batches.sh <folder> <vitus-email> [batch-size] [overwrite-slug,…]
+#   RELINK=1 scripts/import-recipe-batches.sh …   # after food changes: re-link unchanged files too
 #
 # Only needs DATABASE_URL in /root/.config/vitus/db.env (same as the backup);
 # rows are built with the app's own parser and food matching
@@ -77,7 +78,7 @@ done < <(find "$FOLDER" -name '*.md' | sort)
 for dir in $(ls "$WORK/batch" | sort -n); do
   echo; echo "--- Batch $dir ($(ls "$WORK/batch/$dir" | wc -l) Dateien)"
   meta   # fresh slug list, so a re-run skips what is already there
-  node .cli-build/scripts/import-recipes-db.js "$WORK/batch/$dir" --meta "$WORK/meta.json" --foods "$WORK/foods.json" --out "$WORK/batch-$dir.sql" ${OVERWRITE:+--overwrite "$OVERWRITE"}
+  node .cli-build/scripts/import-recipes-db.js "$WORK/batch/$dir" --meta "$WORK/meta.json" --foods "$WORK/foods.json" --out "$WORK/batch-$dir.sql" ${OVERWRITE:+--overwrite "$OVERWRITE"} ${RELINK:+--relink}
   psql_run "batch-$dir.sql"
   cat > "$WORK/check.sql" <<'SQL'
 set default_transaction_read_only = on;

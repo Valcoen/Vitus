@@ -7,7 +7,7 @@
  * in the app since; everything else is a conflict and stays untouched unless
  * its slug is listed in --overwrite.
  *
- *   node .cli-build/scripts/import-recipes-db.js <folder> --meta meta.json --foods foods.json --out import.sql [--overwrite a,b]
+ *   node .cli-build/scripts/import-recipes-db.js <folder> --meta meta.json --foods foods.json --out import.sql [--overwrite a,b] [--relink]
  *
  * meta.json: { user: [{ id }], courses: [{ slug, plan_slots }], cuisines: [{ slug, label }],
  *              recipes: [{ id, slug, status, updated_at, last_imported_at, import_hash }] }
@@ -73,7 +73,8 @@ for (const file of walk(folder).sort()) {
   const { doc } = parseRecipeMarkdown(text, name)
   const hash = createHash('sha256').update(text, 'utf8').digest('hex')
   const ex = existing.get(doc.slug)
-  if (ex && ex.import_hash === hash) {
+  // --relink: same file, but foods changed – link ingredients and derive the diet again
+  if (ex && ex.import_hash === hash && !process.argv.includes('--relink')) {
     console.log(`= unverändert  ${name}`)
     skipped++
     continue
