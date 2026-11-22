@@ -9,7 +9,8 @@ import { indexFoods, type FoodIndex, type FoodItemLite } from '../recipe/nutriti
 
 export const FOOD_COLUMNS =
   'id, name, kcal_100g, protein_100g, carbs_100g, fat_100g, category, kategorie, food_category, aliases, ' +
-  'sugar_100g, fiber_100g, sat_fat_100g, salt_100g, density, unit_grams, kind, is_vegetarian, is_vegan, is_hidden, source'
+  'sugar_100g, fiber_100g, sat_fat_100g, salt_100g, density, unit_grams, kind, is_vegetarian, is_vegan, is_hidden, source, ' +
+  'is_spice, health_note, source_note'
 
 const TTL_MS = 10 * 60 * 1000
 let cache: { at: number; foods: FoodItemLite[]; index: FoodIndex } | null = null

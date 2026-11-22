@@ -35,6 +35,12 @@ export type FoodItemLite = {
   is_vegan?: boolean | null
   /** duplicate kept for old references, not offered in the picker */
   is_hidden?: boolean | null
+  /** spices count with 0 kcal on purpose (tiny amounts) */
+  is_spice?: boolean | null
+  /** short note on traditional / health use, shown in the food list */
+  health_note?: string | null
+  /** where the values come from (manual entries) */
+  source_note?: string | null
   source?: string | null
 }
 

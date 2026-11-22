@@ -7,6 +7,9 @@ import { searchFoods } from '@/components/recipe/FoodPicker'
 
 type Aisle = { slug: string; label: string }
 
+/** pseudo aisle for the "Gewürze" chip (spices sit in the "kraeuter" aisle with fresh herbs) */
+const SPICES = '__spices'
+
 const fmt = (n: number | null | undefined) => (n == null ? '–' : String(Math.round(n * 10) / 10).replace('.', ','))
 
 /** Searchable food list (≈1,300 entries) with aisle filter. */
@@ -19,7 +22,7 @@ export default function FoodBrowser({ foods, aisles }: { foods: FoodItemLite[]; 
   const list = useMemo(() => {
     const base = query.trim() ? searchFoods(foods, query, 300) : foods.filter(f => !f.is_hidden)
     return base
-      .filter(f => !aisle || f.food_category === aisle)
+      .filter(f => !aisle || (aisle === SPICES ? f.is_spice : f.food_category === aisle))
       .filter(f => showDishes || query.trim() || !f.kind || f.kind === 'ingredient')
       .slice(0, 150)
   }, [foods, query, aisle, showDishes])
@@ -36,6 +39,7 @@ export default function FoodBrowser({ foods, aisles }: { foods: FoodItemLite[]; 
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap" role="group" aria-label="Kategorie">
         <button type="button" className={chip(!aisle)} onClick={() => setAisle('')}>Alle</button>
+        <button type="button" className={chip(aisle === SPICES)} aria-pressed={aisle === SPICES} onClick={() => setAisle(aisle === SPICES ? '' : SPICES)}>Gewürze</button>
         {aisles.map(a => (
           <button key={a.slug} type="button" className={chip(aisle === a.slug)} aria-pressed={aisle === a.slug} onClick={() => setAisle(aisle === a.slug ? '' : a.slug)}>{a.label}</button>
         ))}
@@ -54,21 +58,31 @@ export default function FoodBrowser({ foods, aisles }: { foods: FoodItemLite[]; 
                 {f.food_category ? label[f.food_category] : 'Ohne Kategorie'}
                 {f.unit_grams && Object.keys(f.unit_grams).filter(u => u !== 'EL' && u !== 'TL').length > 0 &&
                   ' · ' + Object.entries(f.unit_grams).filter(([u]) => u !== 'EL' && u !== 'TL').map(([u, g]) => `1 ${u} ≈ ${g} g`).join(', ')}
-                {f.source === 'vitus' ? ' · eigener Eintrag' : f.source === 'manual' ? ' · Richtwert' : ''}
+                {f.source === 'vitus' ? ' · eigener Eintrag' : f.source === 'manual' && !f.is_spice ? ' · Richtwert' : ''}
               </p>
+              {f.health_note && <p className="text-sm mt-1 leading-snug">{f.health_note}</p>}
+              {f.source_note && <p className="text-xs mt-1 text-[hsl(var(--text-muted))]">{f.source_note}</p>}
             </div>
             {f.is_vegan ? <Sprout size={18} className="text-green-600 shrink-0" aria-label="vegan" />
               : f.is_vegetarian ? <Leaf size={18} className="text-green-600 shrink-0" aria-label="vegetarisch" /> : null}
-            <div className="text-right shrink-0 tabular-nums">
-              <p className="font-bold">{Math.round(f.kcal_100g)} kcal</p>
-              <p className="text-xs text-[hsl(var(--text-muted))]">P {fmt(f.protein_100g)} · K {fmt(f.carbs_100g)} · F {fmt(f.fat_100g)}</p>
+            <div className="text-right shrink-0 tabular-nums self-start">
+              {f.is_spice && f.kcal_100g === 0 ? (
+                <p className="font-bold">Gewürz</p>
+              ) : (
+                <>
+                  <p className="font-bold">{Math.round(f.kcal_100g)} kcal</p>
+                  <p className="text-xs text-[hsl(var(--text-muted))]">P {fmt(f.protein_100g)} · K {fmt(f.carbs_100g)} · F {fmt(f.fat_100g)}</p>
+                </>
+              )}
+              {f.is_spice && f.kcal_100g > 0 && <p className="text-xs font-semibold text-[hsl(var(--text-muted))]">Gewürz</p>}
             </div>
           </li>
         ))}
       </ul>
       <p className="text-xs text-[hsl(var(--text-muted))]">
         Werte pro 100 g. Quelle: Schweizer Nährwertdatenbank, Bundesamt für Lebensmittelsicherheit und Veterinärwesen BLV (naehrwertdaten.ch),
-        ergänzt um eigene Einträge und Richtwerte.
+        ergänzt um eigene Einträge und Richtwerte. Gewürze zählen wegen der kleinen Mengen mit 0 kcal.
+        Die Hinweise zu Gewürzen beschreiben traditionelle Verwendung und Studienlage – sie sind kein medizinischer Rat.
       </p>
     </div>
   )
